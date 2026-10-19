@@ -41,7 +41,25 @@ jobs:
           cache: npm
       - run: npm ci
       - name: All test suites
-        run: npm test
+        run: npx jest --detectOpenHandles --forceExit --json --outputFile=jest-results.json
+      # Repeat the summary and each failure as annotations, so they show on the
+      # run's summary page without opening the full log.
+      - name: Summarise results
+        if: always()
+        run: |
+          node -e '
+            const fs = require("fs");
+            const clean = (s) => String(s || "").replace(/\x1b\[[0-9;]*m/g, "").split("\n").filter(Boolean).slice(0, 5).join(" | ").slice(0, 900);
+            if (!fs.existsSync("jest-results.json")) { console.log("::error::The tests did not produce results (see the log)"); process.exit(0); }
+            const r = JSON.parse(fs.readFileSync("jest-results.json", "utf8"));
+            const line = `Tests: ${r.numPassedTests} passed, ${r.numFailedTests} failed, ${r.numTotalTests} total`;
+            console.log(r.numFailedTests || r.numRuntimeErrorTestSuites ? `::error::${line}` : `::notice::${line}`);
+            for (const s of r.testResults) {
+              const failed = s.assertionResults.filter((a) => a.status === "failed");
+              if (s.status === "failed" && !failed.length) console.log(`::error title=${s.name.split("/").pop()}::${clean(s.message)}`);
+              for (const a of failed.slice(0, 8)) console.log(`::error title=${a.fullName.slice(0, 100)}::${clean(a.failureMessages[0])}`);
+            }
+          '
 
   seed:
     if: inputs.task == 'seed'
@@ -70,4 +88,13 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Add demo accounts and sample content
-        run: node scripts/seed.js
+        run: |
+          set +e
+          node scripts/seed.js > seed.log 2>&1
+          code=$?
+          cat seed.log
+          if [ $code -ne 0 ]; then
+            echo "::error::$(grep -v '^\s*$' seed.log | tail -n 3 | tr '\n' ' ')"
+            exit $code
+          fi
+          echo "::notice::Demo data is ready: admin and demo parent accounts created."
