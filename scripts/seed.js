@@ -241,11 +241,15 @@ const main = async () => {
   await seedShelf(parent);
   await seedCommunity(admin, samples);
 
+  // Passwords you chose through SEED_* settings are never printed, so they
+  // don't end up in hosting or CI logs. Only the built-in demo ones are shown.
+  const shown = (key, value) => (process.env[key] ? `(your ${key})` : value);
   console.log("\nDemo data is ready.\n");
-  console.log(`  Parent         ${PARENT.email}  /  ${PARENT.password}`);
-  console.log(`  Administrator  ${ADMIN.email}  /  ${ADMIN.password}`);
-  if (process.env.ADMIN_LOGIN_CODE) console.log(`  Admin code     ${process.env.ADMIN_LOGIN_CODE}`);
-  console.log("\nChange these passwords before sharing the site.\n");
+  console.log(`  Parent         ${PARENT.email}  /  ${shown("SEED_PARENT_PASSWORD", PARENT.password)}`);
+  console.log(`  Administrator  ${ADMIN.email}  /  ${shown("SEED_ADMIN_PASSWORD", ADMIN.password)}`);
+  if (!process.env.SEED_ADMIN_PASSWORD || !process.env.SEED_PARENT_PASSWORD) {
+    console.log("\nChange the demo passwords before sharing the site.\n");
+  }
 
   await mongoose.disconnect();
 };

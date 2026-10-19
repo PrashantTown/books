@@ -72,10 +72,22 @@ The "allowed hours" check uses the server's own clock and time zone. On a host r
 
 ## Deploy
 
-1. **Database:** create a MongoDB Atlas cluster, a database user, and allow access from your host. Copy the connection string into `MONGODB_URI`.
-2. **API:** deploy this folder to a Node host such as [Render](https://render.com) (Web Service, build `npm install`, start `npm start`) or Railway. Set the environment variables there: `MONGODB_URI`, `JWT_SECRET`, `CORS_ORIGINS`, `ADMIN_LOGIN_CODE`, `TRUST_PROXY=1`, `NODE_ENV=production`.
-3. **Demo data (optional):** run `npm run seed -- --force` once against the live database, then change the demo passwords.
-4. **Frontend:** set `DEPLOYED_API` in the frontend's `config.js` to the API address and redeploy the site on Vercel.
+1. **Database:** create a free MongoDB Atlas cluster and a database user.
+   - Allow access from anywhere (`0.0.0.0/0`), because Render's free servers have no fixed address.
+   - Copy the connection string and add a database name after `.net/` (for example `.net/parentsgoto?…`).
+2. **API on [Render](https://render.com):** in the dashboard, choose **New > Blueprint** and connect this repository.
+   - `render.yaml` sets up the service: free plan, Singapore, health check, and `CORS_ORIGINS` for the Vercel site. Render creates `JWT_SECRET` itself, then asks you for `MONGODB_URI` and `ADMIN_LOGIN_CODE`.
+   - Free servers sleep after 15 minutes without visitors and take about a minute to wake up.
+3. **Demo data and tests:** add these repository secrets under **Settings > Secrets and variables > Actions**:
+   - `MONGODB_URI`
+   - `MONGODB_URI_TEST`: the same cluster, with database `parentsgoto_test`
+   - `SEED_ADMIN_PASSWORD`: 12 or more characters
+   - `SEED_PARENT_PASSWORD`
+
+   Then run the **Database tasks** workflow from the Actions tab: `seed` once to create the accounts, and `test` to run the tests against Atlas.
+4. **Frontend:** set `DEPLOYED_API` in the frontend's `config.js` to the Render address, and redeploy the site on Vercel.
+
+Any other Node host works too: build with `npm ci`, start with `npm start`, and set the variables listed in `.env.example`.
 
 ## Project layout
 

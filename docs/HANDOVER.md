@@ -15,17 +15,21 @@ Now accounts and data are stored in MongoDB, behind this API. The frontend still
 
 ## Going live, in this order
 
-1. **Database:** create a MongoDB Atlas cluster and a database user, then copy the connection string.
-2. **API:** deploy this backend to a host such as Render or Railway, then set these environment variables:
-   - `MONGODB_URI`
-   - `JWT_SECRET`
+1. **Database:** create a MongoDB Atlas cluster and a database user, allow access from anywhere (`0.0.0.0/0`), then copy the connection string.
+2. **API:** on Render, choose **New > Blueprint** and connect this repository. `render.yaml` sets these environment variables:
+   - `JWT_SECRET`: Render generates it
    - `CORS_ORIGINS=https://parents-go-to.vercel.app`
-   - `ADMIN_LOGIN_CODE`
    - `TRUST_PROXY=1`
    - `NODE_ENV=production`
+
+   Render then asks you for `MONGODB_URI` and `ADMIN_LOGIN_CODE`. On another host, set all six yourself.
 3. **Check:** `https://<your-api>/api/health` should answer with `success: true`.
-4. **Demo data (optional):** run `npm run seed -- --force` once. Then change the demo passwords, or create real admin accounts and delete the demo ones.
-5. **Frontend:** in the site's `config.js`, set `DEPLOYED_API` to the API address, then redeploy on Vercel.
+4. **Administrator account and demo data:** public sign-up only creates parents, so the seed is how the first administrator is created.
+   - Add the repository secrets `MONGODB_URI`, `SEED_ADMIN_PASSWORD` (12 or more characters) and `SEED_PARENT_PASSWORD`.
+   - Run the **Database tasks** workflow with `seed` from the Actions tab.
+   - The repository is public, so the workflow refuses to fall back to the demo passwords.
+5. **Tests against Atlas:** add `MONGODB_URI_TEST` (the same cluster, database `parentsgoto_test`) and run the workflow with `test`.
+6. **Frontend:** in the site's `config.js`, set `DEPLOYED_API` to the API address, then redeploy on Vercel.
 
 **Deploy the frontend last.** Until `DEPLOYED_API` is set, the updated site turns sign-in off. It shows a "This copy of the site isn't connected to its server yet" message instead of letting people in with the old demo password.
 

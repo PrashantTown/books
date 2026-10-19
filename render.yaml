@@ -1,0 +1,31 @@
+# Render Blueprint for the Parents Go To API.
+#
+# In the Render dashboard: New > Blueprint, connect this repository, fill in
+# the two values Render asks for (MONGODB_URI and ADMIN_LOGIN_CODE), then
+# Deploy Blueprint. Render creates JWT_SECRET itself.
+services:
+  - type: web
+    name: parents-go-to-api
+    runtime: node
+    region: singapore
+    plan: free
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: CORS_ORIGINS
+        value: https://parents-go-to.vercel.app
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: ADMIN_LOGIN_CODE
+        sync: false
