@@ -51,24 +51,14 @@ All of them are described in [.env.example](.env.example). The two you must set 
 ## Tests
 
 ```bash
-npm test               # everything
+npm test               # everything: 102 tests
 npm run test:api       # just the API tests added for the frontend (48 tests)
 npm run test:integration
 ```
 
-The tests use the database in `MONGODB_URI`, creating their own users with unique emails and removing them afterwards. Point it at a test database, not your live one.
+All 102 pass, whatever the time of day or the machine's time zone. The tests use the database in `MONGODB_URI`, create their own users with unique emails, and remove them afterwards. Point it at a test database, not your live one. On GitHub, the **Database tasks** workflow runs them against Atlas (see Deploy).
 
-**Known failures in the original suites (not caused by the integration):**
-
-| Test | Why it fails | Fix to choose |
-|---|---|---|
-| `core-features` › "enforces parent child ownership" | Expects 403 for another family's child; the controller answers 404 | Change the test to 404 (hides whether the child exists), or the controller to 403 |
-| `core-features` › "review lifecycle" | Expects 400 for rating 0 on an inactive book; the controller checks the book (403) before the rating | Validate the body before checking the book, or expect 403 |
-| `integration` › B29 | The test logs in with a user object that has no email | Create the student with an email and password first |
-| `integration` › B27, B28 | `jest.useFakeTimers()` freezes the HTTP and database timers, so the request never finishes; if it fails, later tests hang too | Mock `Date` only (`jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'setTimeout', 'setInterval'] })`) or pass the time into `isWithinAllowedHours` |
-| `integration` › B15–B35 at night | Reading is only allowed 08:00–20:00 *server time*, so these pass or fail depending on the clock | Run with `TZ=UTC` in the daytime, or set the allowed hours per test |
-
-The "allowed hours" check uses the server's own clock and time zone. On a host running in UTC, an Australian family's 7 pm limit would be checked as 7 pm UTC. Setting `TZ=Australia/Brisbane` on the host is the quick fix; storing a time zone per family is the proper one.
+The reading-hours limits are checked on the server's clock. `render.yaml` sets `TZ=Australia/Brisbane`, so a family's 7 pm limit means 7 pm in Brisbane. If families in other time zones need it later, store a time zone per family.
 
 ## Deploy
 

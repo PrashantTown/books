@@ -200,9 +200,16 @@ These were in the repo before the frontend work and keep working as before. The 
 | Children | `POST/GET /api/children`, `GET/PUT/DELETE /api/children/:id` (parent) — creating a child also creates a student login |
 | Catalogue | `GET /api/books` (search, filter, paginate), `GET /api/books/:id`; admin: `POST`, `PUT /:id`, `DELETE /:id` (archive), `PATCH /:id/activate`, `PATCH /:id/deactivate` |
 | Parental controls | `GET/POST/PUT /api/parental-controls/:childId`, `PATCH /:childId/enable`, `PATCH /:childId/disable`, `GET /:childId/external-links` |
-| Timed reading | `POST /api/reading-sessions/start`, `POST /:id/end`, `GET /usage/today`, `GET /history`, `GET /remaining-time/:childId` |
+| Timed reading | `POST /api/reading-sessions/start`, `POST /:id/end`, `GET /usage/today`, `GET /history`, `GET /remaining-time` (a student's own), `GET /remaining-time/:childId` |
 | Student wishlist | `POST/DELETE /api/wishlist/:bookId`, `GET /api/wishlist`, `GET /:bookId/status` |
 | Student reviews | `POST /api/reviews/:bookId`, `GET /book/:bookId`, `GET /book/:bookId/summary`, `GET/PUT/DELETE /:id` |
 | Health | `GET /api/health` |
 
-Two behaviour changes to original endpoints, both for safety: `POST /api/auth/register` no longer accepts `role: "admin"` or `"student"` (it defaults to parent), and `POST /api/auth/login` now locks parent accounts after repeated wrong passwords.
+Changes to original endpoints:
+- **For safety:**
+  - `POST /api/auth/register` no longer accepts `role: "admin"` or `"student"`; it defaults to parent.
+  - `POST /api/auth/login` now locks parent accounts after repeated wrong passwords.
+- **To match the original tests:**
+  - Another family's child is 403 on `/api/children/:id`.
+  - A student review's rating is validated before the book.
+  - Students whose child has no parental controls get 403 from the reading usage, remaining-time and history endpoints.

@@ -106,9 +106,16 @@ Every other original endpoint behaves exactly as before.
   - A quick sign-in sometimes snapped back to the sign-in form.
   - Carers could be invited, but there was no way to accept an invitation; an invitation banner has been added.
 
-**Not fixed: decisions for the team.** A few of the original tests fail for reasons that have nothing to do with this work. The table in the [README](../README.md#tests) gives each one with a suggested fix.
+**The original tests that were failing now all pass.** The fixes follow what the tests asked for:
+- **Another family's child:** `GET`, `PUT` and `DELETE /api/children/:id` answer 403 (they answered 404), the same as the parental-controls endpoints. A child that doesn't exist is still 404.
+- **Student reviews:** the rating is checked before the book, so a bad rating is always 400.
+- **Students without parental controls:** they get 403 from usage, remaining time and history, not just from starting a session. `GET /api/reading-sessions/remaining-time` (no child id) now gives a student their own remaining time.
+- **The tests no longer depend on the clock.**
+  - B27 and B28 froze the whole clock, which stalled the database driver. They now build their reading windows around the real time.
+  - The other reading tests open the window all day, and use the server's own date for today's sessions.
+  - B29 now signs in a real student.
 
-Separately, the timed-reading "allowed hours" check uses the server's time zone. On a host running in UTC, an Australian family's 7 pm limit would be checked at 7 pm UTC.
+The reading-hours check uses the server's clock, so `render.yaml` sets `TZ=Australia/Brisbane`.
 
 ## How it was tested
 
@@ -119,7 +126,7 @@ Separately, the timed-reading "allowed hours" check uses the server's time zone.
   - moderation, support and notifications;
   - carers, chat, share links;
   - basics: 404s, bad JSON, security headers, CORS and rate limits.
-- **Original suites:** they pass, apart from the known failures listed in the README.
+- **Original suites:** all pass. That's 102 tests in total with `npm test`, checked in three time zones and at different times of day.
 - **In a real browser:** 24 end-to-end checks ran against the full stack (API, database and site) in Chromium. They covered:
   - sign-in and sign-up through the forms;
   - two devices seeing each other's changes;

@@ -103,6 +103,9 @@ const endSession = async (req, res) => {
   }
 };
 
+// Students can't use reading features until a parent has set up controls.
+const NO_CONTROLS = { success: false, message: "Parental controls are not configured" };
+
 const getTodayUsage = async (req, res) => {
   try {
     let child;
@@ -111,6 +114,7 @@ const getTodayUsage = async (req, res) => {
     else return res.status(400).json({ success: false, message: "childId is required for this account" });
     if (!child) return;
     const control = await getControl(child._id);
+    if (!control && req.user.role === "student") return res.status(403).json(NO_CONTROLS);
     res.json({ success: true, data: await usageData(child._id, control) });
   } catch (error) {
     console.error("Get reading usage error:", error);
@@ -120,10 +124,18 @@ const getTodayUsage = async (req, res) => {
 
 const getRemainingTime = async (req, res) => {
   try {
-    if (!isObjectId(req.params.childId)) return res.status(400).json({ success: false, message: "Invalid child ID" });
-    const child = await findStudentChild(req, res, req.params.childId);
-    if (!child) return;
+    let child;
+    if (req.params.childId === undefined) {
+      // GET /remaining-time: a student's own time
+      child = await getStudentChild(req.user);
+      if (!child) return res.status(404).json({ success: false, message: "Student is not linked to a child" });
+    } else {
+      if (!isObjectId(req.params.childId)) return res.status(400).json({ success: false, message: "Invalid child ID" });
+      child = await findStudentChild(req, res, req.params.childId);
+      if (!child) return;
+    }
     const control = await getControl(child._id);
+    if (!control && req.user.role === "student") return res.status(403).json(NO_CONTROLS);
     const usage = await usageData(child._id, control);
     const activeSession = await ReadingSession.findOne({ childId: child._id, status: "active" });
     res.json({
@@ -145,6 +157,7 @@ const getHistory = async (req, res) => {
     if (req.user.role === "student") {
       const child = await getStudentChild(req.user);
       if (!child) return res.status(404).json({ success: false, message: "Student is not linked to a child" });
+      if (!(await getControl(child._id))) return res.status(403).json(NO_CONTROLS);
       childFilter = { childId: child._id };
     } else if (req.user.role === "parent") {
       const children = await getChildrenForParent(req.user);

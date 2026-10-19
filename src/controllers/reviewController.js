@@ -16,11 +16,12 @@ const validateReview = (body, requireRating = true) => {
 const createReview = async (req, res) => {
   try {
     if (!validId(req.params.bookId)) return res.status(400).json({ success: false, message: "Invalid book ID" });
+    // Check the request itself before the book, so a bad rating is always a 400.
+    const validationError = validateReview(req.body || {}, true);
+    if (validationError) return res.status(400).json({ success: false, message: validationError });
     const book = await Book.findById(req.params.bookId);
     if (!book) return res.status(404).json({ success: false, message: "Book not found" });
     if (book.status !== "active") return res.status(403).json({ success: false, message: "Book is not active" });
-    const validationError = validateReview(req.body || {}, true);
-    if (validationError) return res.status(400).json({ success: false, message: validationError });
     const existing = await Review.findOne({ studentId: req.user._id, bookId: book._id });
     if (existing) return res.status(409).json({ success: false, message: "You have already reviewed this book" });
     const review = await Review.create({ studentId: req.user._id, bookId: book._id, rating: Number(req.body.rating), comment: req.body.comment || "" });

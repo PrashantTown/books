@@ -26,7 +26,6 @@ jobs:
     timeout-minutes: 20
     env:
       MONGODB_URI: ${{ secrets.MONGODB_URI_TEST }}
-      # The original reading-session tests expect 08:00-20:00 on the server clock.
       TZ: Australia/Brisbane
     steps:
       - name: Check the test database is set
@@ -41,11 +40,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: API tests (added with the frontend work)
-        run: npm run test:api
-      - name: Original test suites (3 tests were already failing, see README)
-        continue-on-error: true
-        run: npx jest --detectOpenHandles --forceExit --testPathPatterns 'core-features|integration' -t '^(?!.*B2[78]\.).*$'
+      - name: All test suites
+        run: npm test
 
   seed:
     if: inputs.task == 'seed'

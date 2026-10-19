@@ -6,6 +6,22 @@ const User = require("../models/User");
 
 const isValidObjectId = (value) => /^[0-9a-fA-F]{24}$/.test(String(value || ""));
 
+// Looks up a child for the signed-in parent. A missing child is 404 and another
+// family's child is 403, the same as the parental-controls endpoints.
+// Answers the request itself and returns null when the parent can't use it.
+const findOwnChild = async (req, res) => {
+  const child = isValidObjectId(req.params.id) ? await Child.findById(req.params.id) : null;
+  if (!child) {
+    res.status(404).json({ success: false, message: "Child not found" });
+    return null;
+  }
+  if (String(child.parent) !== String(req.user._id)) {
+    res.status(403).json({ success: false, message: "You can only manage your own children" });
+    return null;
+  }
+  return child;
+};
+
 const getRequestedStudentId = (body = {}) => {
   const value = body.studentId ?? body.student;
   if (value === undefined || value === null || value === "") {
@@ -156,17 +172,8 @@ const getChildren = async (req, res) => {
 // GET ONE CHILD
 const getChild = async (req, res) => {
   try {
-    const child = await Child.findOne({
-      _id: req.params.id,
-      parent: req.user._id,
-    });
-
-    if (!child) {
-      return res.status(404).json({
-        success: false,
-        message: "Child not found",
-      });
-    }
+    const child = await findOwnChild(req, res);
+    if (!child) return;
 
     res.json({
       success: true,
@@ -195,17 +202,8 @@ const updateChild = async (req, res) => {
       });
     }
 
-    const child = await Child.findOne({
-      _id: req.params.id,
-      parent: req.user._id,
-    });
-
-    if (!child) {
-      return res.status(404).json({
-        success: false,
-        message: "Child not found",
-      });
-    }
+    const child = await findOwnChild(req, res);
+    if (!child) return;
 
     if (name !== undefined) {
       child.name = name;
@@ -284,17 +282,9 @@ const updateChild = async (req, res) => {
 // DELETE CHILD
 const deleteChild = async (req, res) => {
   try {
-    const child = await Child.findOneAndDelete({
-      _id: req.params.id,
-      parent: req.user._id,
-    });
-
-    if (!child) {
-      return res.status(404).json({
-        success: false,
-        message: "Child not found",
-      });
-    }
+    const child = await findOwnChild(req, res);
+    if (!child) return;
+    await Child.deleteOne({ _id: child._id });
 
     if (child.student) {
       await User.updateOne(

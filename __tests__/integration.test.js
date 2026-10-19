@@ -13,6 +13,9 @@ const Book = require('../src/models/Book');
 const ParentalControl = require('../src/models/ParentalControl');
 const ReadingSession = require('../src/models/ReadingSession');
 
+// The server files sessions under its local date, so the tests must too.
+const { todayKey } = require('../src/utils/readingAccess');
+
 // Routes
 const authRoutes = require('../src/routes/auth.routes');
 const childrenRoutes = require('../src/routes/children.routes');
@@ -56,6 +59,14 @@ const generateToken = async (user) => {
 };
 
 const JWT_SECRET = process.env.JWT_SECRET || 'test_secret_key';
+
+// "HH:MM" on the server clock, some minutes from now. Lets the access-hours
+// tests build windows that do or don't include the current time, so they
+// pass whatever time of day the suite runs.
+const hhmm = (offsetMinutes) => {
+  const d = new Date(Date.now() + offsetMinutes * 60000);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
 
 // Connect to test database before all tests
 beforeAll(async () => {
@@ -389,6 +400,15 @@ describe('A. Parental Control Tests', () => {
 
 describe('B. Reading Session Tests', () => {
 
+  // These tests are about sessions and limits, not the time of day, so open
+  // the reading window all day. B27 and B28 test the window itself.
+  beforeAll(async () => {
+    await ParentalControl.updateMany(
+      { childId: { $in: [testChildA._id, testChildB._id] } },
+      { $set: { allowedStartTime: '00:00', allowedEndTime: '23:59' } }
+    );
+  });
+
   // B15. Student starts reading an active book
   test('B15. Student starts reading an active book - Expected 201', async () => {
     const res = await request(app)
@@ -466,7 +486,7 @@ describe('B. Reading Session Tests', () => {
       childId: testChildA._id,
       bookId: testActiveBook._id,
       startTime: new Date(),
-      date: new Date().toISOString().split('T')[0],
+      date: todayKey(),
       status: 'active',
     });
 
@@ -520,7 +540,7 @@ describe('B. Reading Session Tests', () => {
       startTime: new Date(Date.now() - 5 * 60000),
       endTime: new Date(),
       duration: 5,
-      date: new Date().toISOString().split('T')[0],
+      date: todayKey(),
       status: 'completed',
     });
 
@@ -583,7 +603,7 @@ describe('B. Reading Session Tests', () => {
       childId: testChildA._id,
       bookId: testActiveBook._id,
       startTime: new Date(Date.now() - 5 * 60000),
-      date: new Date().toISOString().split('T')[0],
+      date: todayKey(),
       status: 'active',
     });
 
@@ -599,18 +619,15 @@ describe('B. Reading Session Tests', () => {
 
 // B27. Allowed access hours - Inside window
   test('B27. Allowed access hours - Inside window - Expected reading permitted', async () => {
-    // Set access hours to include 12:00-13:00
+    // A window from an hour ago to an hour from now, so "now" is inside it.
+    // (Faking the clock here stalled the database driver, so the real clock is used.)
     await ParentalControl.findOneAndUpdate(
       { childId: testChildA._id },
-      { $set: { allowedStartTime: '12:00', allowedEndTime: '13:00' } }
+      { $set: { allowedStartTime: hhmm(-60), allowedEndTime: hhmm(60) } }
     );
 
     // Clean up existing sessions
     await ReadingSession.deleteMany({ childId: testChildA._id });
-
-    // Mock current time to 12:30
-    const mockDate = new Date('2023-01-01T12:30:00Z');
-    jest.useFakeTimers().setSystemTime(mockDate);
 
     const res = await request(app)
       .post('/api/reading-sessions/start')
@@ -618,24 +635,17 @@ describe('B. Reading Session Tests', () => {
       .send({ bookId: testActiveBook._id });
 
     expect(res.status).toBe(201);
-
-    // Restore real time
-    jest.useRealTimers();
   });
 
 // B28. Blocked access hours - Outside window
   test('B28. Blocked access hours - Outside window - Expected reading rejected', async () => {
-    // Set access hours to 12:00-13:00
+    // A window that opens an hour from now, so "now" is outside it.
     await ParentalControl.findOneAndUpdate(
       { childId: testChildB._id },
-      { $set: { allowedStartTime: '12:00', allowedEndTime: '13:00' } }
+      { $set: { allowedStartTime: hhmm(60), allowedEndTime: hhmm(120) } }
     );
 
     await ReadingSession.deleteMany({ childId: testChildB._id });
-
-    // Mock current time to 11:30 (outside allowed window)
-    const mockDate = new Date('2023-01-01T11:30:00Z');
-    jest.useFakeTimers().setSystemTime(mockDate);
 
     const res = await request(app)
       .post('/api/reading-sessions/start')
@@ -644,29 +654,31 @@ describe('B. Reading Session Tests', () => {
 
     expect(res.status).toBe(403);
     expect(res.body.message).toContain('not allowed');
-
-    // Restore real time
-    jest.useRealTimers();
   });
 
 // B29. Missing parental controls
   test('B29. Missing parental controls - Expected 403', async () => {
-    // Create a child without controls
+    // A student of their own, linked to a child that has no controls
+    // (signing in needs a real email and password)
+    const studentNoControls = await User.create({
+      name: `Test Student No Controls ${testId}`,
+      email: `test.studentnocontrols${testId}@test.com`,
+      password: await bcrypt.hash('TestPass123!', 10),
+      role: 'student',
+      parentId: testParentA._id,
+      testId,
+    });
+
     const childNoControls = await Child.create({
       name: `Test Child No Controls ${testId}`,
       age: 6,
       band: 'A',
       parent: testParentA._id,
-      student: testStudentA._id,
+      student: studentNoControls._id,
       testId,
     });
 
-    // Create a token for the student without controls
-    const studentNoControlsToken = await generateToken({
-      _id: childNoControls.student,
-      role: 'student',
-      parentId: testParentA._id,
-    });
+    const studentNoControlsToken = await generateToken(studentNoControls);
 
     // Verify the student cannot start a reading session
     const res = await request(app)
@@ -742,7 +754,7 @@ describe('B. Reading Session Tests', () => {
 
   // B34. Date filter
   test('B34. Date filter works correctly', async () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayKey();
     const res = await request(app)
       .get(`/api/reading-sessions/history?date=${today}`)
       .set('Authorization', `Bearer ${studentTokenA}`);
