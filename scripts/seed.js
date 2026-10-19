@@ -216,10 +216,14 @@ const main = async () => {
   if (process.env.NODE_ENV === "production" && !FORCE) {
     throw new Error("Refusing to seed with NODE_ENV=production. Pass --force if you really mean it.");
   }
-  if (!process.env.MONGODB_URI) throw new Error("Set MONGODB_URI in .env first.");
+  const uri = String(process.env.MONGODB_URI || "").trim();
+  if (!uri) throw new Error("Set MONGODB_URI in .env first.");
+  if (!/^mongodb(\+srv)?:\/\//.test(uri)) {
+    throw new Error("MONGODB_URI must start with mongodb+srv:// (check for a missing or extra part when it was pasted)");
+  }
   if (ADMIN.password.length < 12) throw new Error("SEED_ADMIN_PASSWORD must be at least 12 characters.");
 
-  await mongoose.connect(process.env.MONGODB_URI);
+  await mongoose.connect(uri);
 
   if (RESET) {
     for (const email of [ADMIN.email, PARENT.email, ...SAMPLE_PARENTS.map((p) => p.email)]) {
