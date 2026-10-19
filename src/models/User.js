@@ -50,6 +50,34 @@ const userSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+
+    // Added for the frontend integration -------------------------------
+
+    // Wrong passwords in a row. Reset on a successful sign-in. When it
+    // reaches the platform's lockAttempts setting the account is locked.
+    failedLogins: {
+      type: Number,
+      default: 0,
+    },
+
+    // True when the account was suspended automatically for too many wrong
+    // passwords (as opposed to an administrator suspending it).
+    lockedOut: {
+      type: Boolean,
+      default: false,
+    },
+
+    // True after an administrator sets a temporary password, until the
+    // person changes it themselves.
+    tempPassword: {
+      type: Boolean,
+      default: false,
+    },
+
+    passwordChangedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
