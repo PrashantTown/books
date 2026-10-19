@@ -19,6 +19,9 @@ services:
         value: "22"
       - key: NODE_ENV
         value: production
+      # Reading-hours limits are checked on the server clock.
+      - key: TZ
+        value: Australia/Brisbane
       - key: TRUST_PROXY
         value: "1"
       - key: CORS_ORIGINS
