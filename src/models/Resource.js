@@ -14,6 +14,9 @@ const resourceSchema = new mongoose.Schema(
     ages: { type: String, default: "", maxlength: 20 },
     link: { type: String, default: "", trim: true, maxlength: 2000 },
 
+    // Which project page it belongs to (a Project slug).
+    project: { type: String, default: "reading-for-pleasure", trim: true, maxlength: 40, index: true },
+
     state: { type: String, enum: ["draft", "published"], default: "draft", index: true },
 
     // Email of the administrator who last saved it.

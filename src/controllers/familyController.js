@@ -4,6 +4,7 @@ const { createNotification } = require("../utils/notify");
 const { writeAudit } = require("../utils/audit");
 const { sameUser } = require("../utils/access");
 const { isClientId, isEmail, text, lower, ms, randomToken } = require("../utils/validate");
+const { buildShelf } = require("./shelfController");
 
 /**
  * Sharing a family shelf with carers.
@@ -11,6 +12,7 @@ const { isClientId, isEmail, text, lower, ms, randomToken } = require("../utils/
  *   POST /api/family               invite someone by email
  *   POST /api/family/:id/accept    accept an invitation sent to your email
  *   POST /api/family/:id/withdraw  withdraw one you sent (or leave one you accepted)
+ *   GET  /api/family/shared        the shelves shared with you (read-only copies)
  *
  * Accepted carers can chat with the shelf owner (see /api/chat).
  */
@@ -163,4 +165,42 @@ const withdraw = async (req, res) => {
   }
 };
 
-module.exports = { listInvites, invite, accept, withdraw };
+// GET /api/family/shared
+// The shelves of the families whose invitation you accepted: children,
+// library, wishlist and recent reading, to look at but not change.
+const SHARED_SESSIONS = 200;
+const sharedShelves = async (req, res) => {
+  try {
+    const rows = await CarerInvite.find({
+      state: "accepted",
+      $or: [{ carer: req.user._id }, { email: req.user.email }],
+    })
+      .sort({ acceptedAt: -1 })
+      .limit(MAX_ACTIVE)
+      .populate("owner", "email name role status");
+
+    const items = [];
+    for (const row of rows) {
+      const owner = row.owner;
+      if (!owner || owner.role !== "parent" || owner.status === "suspended" || sameUser(owner, req.user)) continue;
+      const shelf = await buildShelf(owner);
+      items.push({
+        ownerId: String(owner._id),
+        ownerName: owner.name || owner.email,
+        ownerEmail: owner.email,
+        linkId: row.clientId,
+        acceptedAt: ms(row.acceptedAt),
+        children: shelf.children,
+        books: shelf.books,
+        wishlist: shelf.wishlist,
+        sessions: shelf.sessions.slice(0, SHARED_SESSIONS),
+      });
+    }
+    return res.json({ success: true, items });
+  } catch (error) {
+    console.error("Shared shelves error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+module.exports = { listInvites, invite, accept, withdraw, sharedShelves };

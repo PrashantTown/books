@@ -523,6 +523,40 @@ const deleteMe = async (req, res) => {
   }
 };
 
+// CHECK MY PASSWORD
+// Settings asks for the current password before sensitive changes (new email,
+// new password, deleting the account). Nothing changes here, and a wrong
+// password doesn't count towards the lockout; the route is rate-limited.
+const verifyPassword = async (req, res) => {
+  try {
+    const { password } = req.body || {};
+    if (!password) {
+      return res.status(400).json({ success: false, message: "Enter your password" });
+    }
+    const valid = await bcrypt.compare(String(password), req.user.password);
+    return res.json({ success: true, valid });
+  } catch (error) {
+    console.error("Verify password error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// SIGN OUT EVERYWHERE ELSE
+// Ends every other session (tokenVersion changes) and returns a fresh token,
+// so this device stays signed in.
+const logoutOthers = async (req, res) => {
+  try {
+    const user = req.user;
+    user.tokenVersion += 1;
+    await user.save();
+    await writeAudit({ kind: "auth", what: "Signed out on every other device", who: user.email, user: user._id });
+    return res.json({ success: true, message: "Signed out everywhere else", token: generateToken(user) });
+  } catch (error) {
+    console.error("Logout others error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 // FORGOT PASSWORD
 // There is no email service, so this tells the administrators, who can give
 // the person a temporary password from the Accounts tab. Always answers the
@@ -567,5 +601,7 @@ module.exports = {
   changePassword,
   deleteMe,
   forgotPassword,
+  verifyPassword,
+  logoutOthers,
   MIN_PASSWORD,
 };

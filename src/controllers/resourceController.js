@@ -10,6 +10,9 @@ const { isClientId, text, ms, toDate } = require("../utils/validate");
  *   DELETE /api/resources/:id    admin: delete
  */
 
+const DEFAULT_PROJECT = "reading-for-pleasure";
+const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+
 const resourceOut = (r) => ({
   id: r.clientId,
   title: r.title,
@@ -17,6 +20,7 @@ const resourceOut = (r) => ({
   category: r.category,
   ages: r.ages,
   link: r.link,
+  project: r.project || DEFAULT_PROJECT,
   state: r.state,
   at: ms(r.at),
   by: r.by,
@@ -41,6 +45,7 @@ const fields = (body) => {
       category: text(body.category, 40),
       ages: text(body.ages, 20),
       link,
+      project: SLUG.test(String(body.project || "")) ? String(body.project) : DEFAULT_PROJECT,
       state: body.state === "published" ? "published" : "draft",
     },
   };

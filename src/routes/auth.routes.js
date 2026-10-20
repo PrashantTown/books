@@ -10,6 +10,8 @@ const {
   changePassword,
   deleteMe,
   forgotPassword,
+  verifyPassword,
+  logoutOthers,
 } = require("../controllers/authController");
 
 const protect = require("../middleware/auth");
@@ -55,5 +57,10 @@ router.delete("/me", protect, deleteMe);
 router.put("/password", protect, changePassword);
 
 router.post("/logout", protect, logout);
+
+router.post("/logout-others", protect, logoutOthers);
+
+// Settings checks the current password before sensitive changes.
+router.post("/verify-password", protect, signInLimit, verifyPassword);
 
 module.exports = router;

@@ -27,6 +27,8 @@ Base URL: `http://localhost:5000` locally, or your deployed address.
 | PUT | `/password` | signed in | Body `{ currentPassword, newPassword }` (parents 8+, admins 12+). Signs out other devices; returns a new `token`. Wrong current → 401 `WRONG_PASSWORD` |
 | DELETE | `/me` | signed in | Body `{ password }`. Deletes the account and everything in it. The last active admin can't delete themselves (409) |
 | POST | `/logout` | signed in | Revokes the token |
+| POST | `/logout-others` | signed in | Signs out every other device; returns a new `token` for this one |
+| POST | `/verify-password` | signed in | Body `{ password }` → `{ valid: true\|false }`. Changes nothing and doesn't count towards the lockout (rate-limited like sign-in) |
 
 **Sign-in error codes** (`403` unless noted): `ACCOUNT_LOCKED` (too many wrong passwords), `ACCOUNT_SUSPENDED`, `NOT_ADMIN`, `USE_ADMIN` (admin account on the parent side), `NOT_PARENT`. A wrong password is `401` with `attemptsLeft`. Admin code: `WRONG_CODE` (with `attemptsLeft`), `CODE_ABANDONED`, `CHALLENGE_EXPIRED`.
 
@@ -117,8 +119,28 @@ These are separate from `/api/reviews`, which are students' reviews of catalogue
 | Method | Path | Who | What |
 |---|---|---|---|
 | GET | `/` | signed in | Published (admins also see drafts) |
-| POST | `/` | admin | `{ id?, title, body, category, ages, link, state: "draft"\|"published" }` |
+| POST | `/` | admin | `{ id?, title, body, category, ages, link, project, state: "draft"\|"published" }`. `project` is a project's `slug` (default `reading-for-pleasure`) |
 | PUT | `/:id` | admin | Edit |
+| DELETE | `/:id` | admin | |
+
+## Projects — `/api/projects`
+
+The tiles on the home page, each with its own page (`project.html?p=<slug>`). The two built-in projects (`reading-for-pleasure`, `four-voices`) are created the first time the list is read.
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/` | public | `{ items: [{ id, slug, title, blurb, status: "open"\|"soon"\|"hidden", categories: [{ id, name }], sort, link, image, builtIn }] }` |
+| PUT | `/:id` | admin | Add or edit. `{ slug (new only, a–z 0–9 and hyphens, unique), title, blurb, status, categories, sort, link, image }`. `link`: a page here (`x.html`) or `https://…`; `image`: an image file here or `https://…`. The slug never changes once set |
+| DELETE | `/:id` | admin | Not the built-in projects (409) |
+
+## Book catalogue — `/api/catalogue`
+
+Books the team recommends ("Discover books").
+
+| Method | Path | Who | What |
+|---|---|---|---|
+| GET | `/` | public | Published books (admins: hidden ones too): `{ id, title, author, year, pages, category, ages, source, note, link, cover, readLink, watchLink, state: "published"\|"hidden", sort }` |
+| PUT | `/:id` | admin | Add or edit (same fields). Links must start with `https://` |
 | DELETE | `/:id` | admin | |
 
 ## Support — `/api/support`
@@ -164,6 +186,7 @@ The server also logs sign-ins, sign-outs, lockouts, password changes and resets,
 | POST | `/` | `{ id?, name, email }` — up to 12 active; the invited person is notified if they have an account |
 | POST | `/:id/accept` | Accept an invitation sent to your email |
 | POST | `/:id/withdraw` | Withdraw one you sent, or decline/leave one sent to you |
+| GET | `/shared` | Shelves shared with you (invitations you accepted), read-only: `{ items: [{ ownerId, ownerName, ownerEmail, linkId, acceptedAt, children, books, wishlist, sessions }] }` (newest 200 reading-log entries) |
 
 Invitation: `{ id, ref, owner, name, email, role, state: "invited"|"accepted"|"withdrawn", by, byName, at, acceptedAt, withdrawnAt, withdrawnBy, incoming }`.
 

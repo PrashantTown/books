@@ -29,6 +29,8 @@ const FamilyProfile = require("../src/models/FamilyProfile");
 const BookReview = require("../src/models/BookReview");
 const Resource = require("../src/models/Resource");
 const Suggestion = require("../src/models/Suggestion");
+const CatalogueBook = require("../src/models/CatalogueBook");
+const { ensureBuiltIns } = require("../src/controllers/projectController");
 const { deleteAccountAndData } = require("../src/utils/accountCleanup");
 const { bookKey } = require("../src/controllers/bookReviewController");
 
@@ -212,6 +214,27 @@ const seedCommunity = async (admin, samples) => {
   }
 };
 
+// A starter catalogue for "Discover books", so the tab isn't empty on a new
+// site. Administrators can edit, hide or delete these from the console.
+const CATALOGUE = [
+  { clientId: "cat-seed-gruffalo", title: "The Gruffalo", author: "Julia Donaldson", year: 1999, pages: 32, category: "picture", ages: "3–5", note: "A rhyming read-aloud with a twist at the end. Children soon join in with the repeated lines." },
+  { clientId: "cat-seed-possum-magic", title: "Possum Magic", author: "Mem Fox", year: 1983, pages: 32, category: "picture", ages: "3–5", note: "An Australian favourite that travels the country one food at a time." },
+  { clientId: "cat-seed-diary-of-a-wombat", title: "Diary of a Wombat", author: "Jackie French", year: 2002, pages: 32, category: "early", ages: "5–7", note: "Very few words on each page, so new readers can try it on their own." },
+  { clientId: "cat-seed-where-the-wild-things-are", title: "Where the Wild Things Are", author: "Maurice Sendak", year: 1963, pages: 48, category: "bedtime", ages: "3–5", note: "Short enough for a tired bedtime, with pictures that reward a second look." },
+  { clientId: "cat-seed-charlottes-web", title: "Charlotte's Web", author: "E. B. White", year: 1952, pages: 184, category: "chapter", ages: "7–9", note: "Short chapters that suit one a night, and a gentle first book about friendship and loss." },
+  { clientId: "cat-seed-matilda", title: "Matilda", author: "Roald Dahl", year: 1988, pages: 240, category: "chapter", ages: "9–12", note: "A good choice for a child who has just found that they love reading." },
+];
+
+const seedCatalogue = async (admin) => {
+  for (const [i, book] of CATALOGUE.entries()) {
+    await CatalogueBook.findOneAndUpdate(
+      { clientId: book.clientId },
+      { $set: { ...book, source: "other", state: "published", sort: i * 10, by: admin.email } },
+      { upsert: true }
+    );
+  }
+};
+
 const main = async () => {
   if (process.env.NODE_ENV === "production" && !FORCE) {
     throw new Error("Refusing to seed with NODE_ENV=production. Pass --force if you really mean it.");
@@ -234,6 +257,7 @@ const main = async () => {
       BookReview.deleteMany({ clientId: { $in: ["rv-seed-priya", "rv-seed-marcus"] } }),
       Resource.deleteMany({ clientId: { $in: ["post1", "post2", "post3"] } }),
       Suggestion.deleteMany({ clientId: { $in: ["sub1", "sub2", "sub3", "sub4"] } }),
+      CatalogueBook.deleteMany({ clientId: { $in: CATALOGUE.map((b) => b.clientId) } }),
     ]);
   }
 
@@ -244,6 +268,8 @@ const main = async () => {
 
   await seedShelf(parent);
   await seedCommunity(admin, samples);
+  await seedCatalogue(admin);
+  await ensureBuiltIns();
 
   // Passwords you chose through SEED_* settings are never printed, so they
   // don't end up in hosting or CI logs. Only the built-in demo ones are shown.

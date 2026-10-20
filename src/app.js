@@ -23,6 +23,8 @@ const auditRoutes = require("./routes/audit.routes");
 const familyRoutes = require("./routes/family.routes");
 const chatRoutes = require("./routes/chat.routes");
 const shareRoutes = require("./routes/share.routes");
+const projectRoutes = require("./routes/project.routes");
+const catalogueRoutes = require("./routes/catalogue.routes");
 
 const { notFound, errorHandler } = require("./middleware/errorHandler");
 
@@ -93,6 +95,8 @@ const createApp = () => {
   app.use("/api/family", familyRoutes);
   app.use("/api/chat", chatRoutes);
   app.use("/api/share", shareRoutes);
+  app.use("/api/projects", projectRoutes);
+  app.use("/api/catalogue", catalogueRoutes);
 
   app.get("/", (req, res) => {
     res.json({
