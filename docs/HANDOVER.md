@@ -90,9 +90,10 @@ Every other original endpoint behaves exactly as before.
 - **Lockout.**
   - The server counts wrong passwords. When the count reaches the console's limit (5 by default), the account is locked and the administrators are notified. An administrator unlocks it from the console, either by restoring the account or by setting a temporary password.
   - Administrator accounts don't lock, so nobody can lock every admin out. They are rate-limited like everyone else.
-- **Administrator code.** The six-digit step after an admin's password is now checked on the server against `ADMIN_LOGIN_CODE`. Leave it empty to switch the step off. A per-person authenticator app would be the stronger next step.
+- **Administrator code.** The six-digit step after an admin's password is checked on the server. With email set up, every sign-in emails a fresh code to that administrator's own address (it works once, for 10 minutes; only a hash is stored). Without email, everyone uses the shared `ADMIN_LOGIN_CODE`; leave it empty to switch the step off.
 - **Sign-out really signs out.** Tokens are revoked on sign-out, password change and suspension (`tokenVersion` on the user).
-- **Forgot password.** There is no email service, so a request notifies the administrators. They issue a temporary password from the console and pass it on. When the person signs in with it, they're reminded to choose a new one in Settings.
+- **Forgot password.** With email set up (Brevo, see `.env.example`), the person gets a one-time link that lasts 30 minutes; only a hash of it is stored, and using it signs out their other sessions. Without email, the administrators are notified and issue a temporary password from the console; signing in with it goes straight to "Choose a new password".
+- **Confirming new accounts.** With email set up, a new account can't sign in until its owner opens the confirmation link we email them (24 hours; they can ask for another).
 - **Changing your email** also moves your chats, carer invitations and notifications to the new address.
 - **Deleting an account** removes everything that belongs to it: children and their student logins, the shelf, reading log, posts, reviews, suggestions, tickets, chats, invitations, share link and notifications. The activity log keeps its entries on purpose, so administrators still have a record. The last active administrator can't delete their own account.
 
@@ -126,7 +127,7 @@ The reading-hours check uses the server's clock, so `render.yaml` sets `TZ=Austr
   - moderation, support and notifications;
   - carers, chat, share links;
   - basics: 404s, bad JSON, security headers, CORS and rate limits.
-- **Original suites:** all pass. That's 102 tests in total with `npm test`, checked in three time zones and at different times of day.
+- **Original suites:** all pass. That's 126 tests in total with `npm test` (102 when this handover began), checked in three time zones and at different times of day.
 - **In a real browser:** 24 end-to-end checks ran against the full stack (API, database and site) in Chromium. They covered:
   - sign-in and sign-up through the forms;
   - two devices seeing each other's changes;

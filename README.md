@@ -29,7 +29,9 @@ Check it's up: <http://localhost:5000/api/health>
 | Parent (Sarah, with Harry and Leo's shelf) | `demo@parentsgoto.test` | `demo1234` |
 | Administrator | `admin@parentsgoto.test` | `demo1234-admin` |
 
-If `ADMIN_LOGIN_CODE` is set, administrators also enter that six-digit code after their password. Change these passwords (or the `SEED_*` values in `.env`) before sharing the site with anyone.
+Administrators also enter a six-digit code after their password: with email set up, a fresh code is emailed to them for every sign-in; without it, the shared `ADMIN_LOGIN_CODE` (if set). Change these passwords (or the `SEED_*` values in `.env`) before sharing the site with anyone.
+
+**Email** (optional, free): with `BREVO_API_KEY` and `MAIL_FROM` set (see `.env.example`), "Forgot your password?" emails a reset link, new accounts confirm their email address, and administrators get their sign-in codes by email. To add an administrator, run the **Database tasks** workflow with `add-admin`; they then set their password with "Forgot your password?".
 
 `npm run seed -- --reset` removes the demo accounts and adds them again fresh. The seed refuses to run when `NODE_ENV=production` unless you add `--force`.
 
@@ -51,12 +53,12 @@ All of them are described in [.env.example](.env.example). The two you must set 
 ## Tests
 
 ```bash
-npm test               # everything: 102 tests
+npm test               # everything: 126 tests
 npm run test:api       # just the API tests added for the frontend (48 tests)
 npm run test:integration
 ```
 
-All 102 pass, whatever the time of day or the machine's time zone. The tests use the database in `MONGODB_URI`, create their own users with unique emails, and remove them afterwards. Point it at a test database, not your live one. On GitHub, the **Database tasks** workflow runs them against Atlas (see Deploy).
+All 126 pass, whatever the time of day or the machine's time zone. The tests use the database in `MONGODB_URI`, create their own users with unique emails, and remove them afterwards. Point it at a test database, not your live one. On GitHub, the **Database tasks** workflow runs them against Atlas (see Deploy).
 
 The reading-hours limits are checked on the server's clock. `render.yaml` sets `TZ=Australia/Brisbane`, so a family's 7 pm limit means 7 pm in Brisbane. If families in other time zones need it later, store a time zone per family.
 
