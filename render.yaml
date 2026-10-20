@@ -32,3 +32,9 @@ services:
         sync: false
       - key: ADMIN_LOGIN_CODE
         sync: false
+      # Email: password reset links, confirming new accounts, and a fresh
+      # six-digit code for every administrator sign-in. Add BREVO_API_KEY and
+      # MAIL_FROM (a sender verified in Brevo) under Environment in the
+      # dashboard; until then these emails are off and ADMIN_LOGIN_CODE is used.
+      - key: MAIL_FROM_NAME
+        value: Parents Go To

@@ -10,6 +10,7 @@ const { notifyAdmins } = require("../utils/notify");
 const { deleteAccountAndData } = require("../utils/accountCleanup");
 const { renameAccountEmail } = require("../utils/emailRename");
 const { isEmail, text, lower } = require("../utils/validate");
+const { sendMail, mailEnabled } = require("../utils/mailer");
 
 const MIN_PASSWORD = { parent: 8, student: 8, admin: 12 };
 
@@ -75,7 +76,9 @@ const register = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
+    // Create user. With email set up, the account waits until the person
+    // opens the confirmation link we email them.
+    const confirmByEmail = mailEnabled();
     const user = await User.create({
       name: text(name, 120),
       email: lower(email),
@@ -83,9 +86,19 @@ const register = async (req, res) => {
       role: "parent",
       lastSeen: new Date(),
       passwordChangedAt: new Date(),
+      emailConfirmed: !confirmByEmail,
     });
 
     await writeAudit({ kind: "auth", what: "Parent account created", who: user.email, user: user._id });
+
+    if (confirmByEmail) {
+      await startConfirmation(user, req);
+      return res.status(201).json({
+        success: true,
+        confirm: true,
+        message: `We've sent a link to ${user.email}. Open it to finish creating your account.`,
+      });
+    }
 
     // Generate JWT
     const token = generateToken(user);
@@ -129,13 +142,43 @@ const sameCode = (given, expected) => {
   return crypto.timingSafeEqual(a, b);
 };
 
-const issueChallenge = (user) => {
+const issueChallenge = (user, minutes = 5) => {
   const jti = crypto.randomBytes(12).toString("hex");
   return jwt.sign(
     { userId: user._id, tokenVersion: user.tokenVersion, purpose: "admin-code", jti },
     process.env.JWT_SECRET,
-    { expiresIn: "5m" }
+    { expiresIn: `${minutes}m` }
   );
+};
+
+// With email set up, each administrator sign-in gets its own six-digit code,
+// emailed to the address they sign in with. Without email, everyone uses the
+// shared ADMIN_LOGIN_CODE (if it is set).
+const ADMIN_EMAIL_CODE_MINUTES = 10;
+
+const maskEmail = (email) => {
+  const [name, domain] = String(email || "").split("@");
+  return `${name.slice(0, 1)}${"*".repeat(Math.max(2, Math.min(6, name.length - 1)))}@${domain}`;
+};
+
+const sendAdminCodeEmail = (user, code) => {
+  const text = [
+    `Hi ${user.name || "there"},`,
+    "",
+    `Your code to finish signing in to the Parents Go To console is: ${code}`,
+    "",
+    `It works once and stops working after ${ADMIN_EMAIL_CODE_MINUTES} minutes.`,
+    "If you didn't just try to sign in, someone may know your password: change it in Settings straight away.",
+    "",
+    "Parents Go To",
+  ].join("\n");
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#1d2a26;max-width:520px">
+<p>Hi ${escapeHtml(user.name || "there")},</p>
+<p>Your code to finish signing in to the Parents Go To console is:</p>
+<p style="font-size:30px;font-weight:bold;letter-spacing:6px;margin:16px 0">${escapeHtml(code)}</p>
+<p style="font-size:14px;color:#4b5a55">It works once and stops working after ${ADMIN_EMAIL_CODE_MINUTES} minutes. If you didn't just try to sign in, someone may know your password: change it in Settings straight away.</p>
+<p>Parents Go To</p></div>`;
+  return sendMail({ to: user.email, subject: `${code} is your Parents Go To sign-in code`, text, html });
 };
 
 // LOGIN
@@ -240,11 +283,46 @@ const login = async (req, res) => {
 
     user.failedLogins = 0;
 
+    if (user.emailConfirmed === false) {
+      await user.save();
+      return res.status(403).json({
+        success: false,
+        code: "EMAIL_NOT_CONFIRMED",
+        message: "Your email address is not confirmed yet. Open the link we emailed you, or ask for a new one.",
+      });
+    }
+
+    if (user.role === "admin" && mailEnabled()) {
+      const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+      user.adminCodeHash = hashToken(`${user._id}:${code}`);
+      user.adminCodeExpires = new Date(Date.now() + ADMIN_EMAIL_CODE_MINUTES * 60 * 1000);
+      await user.save();
+      try {
+        await sendAdminCodeEmail(user, code);
+      } catch (error) {
+        console.error("Admin code email error:", error.message);
+        return res.status(503).json({
+          success: false,
+          code: "EMAIL_FAILED",
+          message: "We couldn't email your sign-in code just now. Try again in a minute.",
+        });
+      }
+      return res.json({
+        success: true,
+        codeRequired: true,
+        via: "email",
+        sentTo: maskEmail(user.email),
+        challenge: issueChallenge(user, ADMIN_EMAIL_CODE_MINUTES),
+        message: "We've emailed you a six-digit code",
+      });
+    }
+
     if (user.role === "admin" && adminCodeRequired()) {
       await user.save();
       return res.json({
         success: true,
         codeRequired: true,
+        via: "code",
         challenge: issueChallenge(user),
         message: "Enter the administrator code to finish signing in",
       });
@@ -312,11 +390,27 @@ const verifyAdminCode = async (req, res) => {
       return res.status(401).json({ success: false, code: "CHALLENGE_EXPIRED", message: "That sign-in has expired. Start again." });
     }
 
-    if (!sameCode(String(code).trim(), String(process.env.ADMIN_LOGIN_CODE || "").trim())) {
+    // The code we emailed this administrator, or else the shared code.
+    let right;
+    if (user.adminCodeHash) {
+      if (!user.adminCodeExpires || user.adminCodeExpires.getTime() < Date.now()) {
+        return res.status(401).json({ success: false, code: "CHALLENGE_EXPIRED", message: "That code has expired. Go back and sign in again for a new one." });
+      }
+      right = sameCode(hashToken(`${user._id}:${String(code).trim()}`), user.adminCodeHash);
+    } else {
+      right = adminCodeRequired() && sameCode(String(code).trim(), String(process.env.ADMIN_LOGIN_CODE || "").trim());
+    }
+
+    if (!right) {
       entry.fails += 1;
       if (entry.fails >= ADMIN_CODE_TRIES) {
         entry.done = true;
         usedChallenges.set(decoded.jti, entry);
+        if (user.adminCodeHash) {
+          user.adminCodeHash = null;
+          user.adminCodeExpires = null;
+          await user.save();
+        }
         await writeAudit({ kind: "auth", what: "Administrator sign-in abandoned after three wrong codes", who: user.email, user: user._id });
         return res.status(401).json({
           success: false,
@@ -342,6 +436,8 @@ const verifyAdminCode = async (req, res) => {
     entry.done = true;
     usedChallenges.set(decoded.jti, entry);
 
+    user.adminCodeHash = null;
+    user.adminCodeExpires = null;
     user.lastSeen = new Date();
     await user.save();
     await writeAudit({ kind: "auth", what: "Administrator signed in", who: user.email, user: user._id });
@@ -475,6 +571,8 @@ const changePassword = async (req, res) => {
     user.password = await bcrypt.hash(String(newPassword), 10);
     user.tempPassword = false;
     user.passwordChangedAt = new Date();
+    user.resetTokenHash = null;
+    user.resetTokenExpires = null;
     user.tokenVersion += 1;
     await user.save();
 
@@ -558,9 +656,68 @@ const logoutOthers = async (req, res) => {
 };
 
 // FORGOT PASSWORD
-// There is no email service, so this tells the administrators, who can give
-// the person a temporary password from the Accounts tab. Always answers the
-// same way so it can't be used to check which emails have accounts.
+// With email set up (src/utils/mailer.js), this emails a one-time link to
+// choose a new password; without it, the administrators are told and can
+// give the person a temporary password from the Accounts tab. Either way the
+// answer is the same whether or not the email has an account.
+const RESET_MINUTES = 30;
+const RESET_RESEND_SECONDS = 60;
+const RESET_PAGE = "/reading-for-pleasure.html";
+
+const hashToken = (token) => crypto.createHash("sha256").update(String(token)).digest("hex");
+
+const escapeHtml = (value) =>
+  String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// Where the emailed link points: the site the request came from when it is
+// one of the allowed sites (CORS_ORIGINS), otherwise SITE_URL, otherwise the
+// first allowed site.
+const resetPageFor = (req) => {
+  const allowed = String(process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  const origin = String(req.get("origin") || "").replace(/\/$/, "");
+  const local = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  if (origin && (allowed.includes(origin) || (!allowed.length && local))) return origin + RESET_PAGE;
+  const site = String(process.env.SITE_URL || "").trim().replace(/\/$/, "");
+  if (site) return /\.html$/.test(site) ? site : site + RESET_PAGE;
+  return (allowed[0] || "http://localhost:5500") + RESET_PAGE;
+};
+
+const sendResetEmail = (user, link) => {
+  const name = user.name || "there";
+  const text = [
+    `Hi ${name},`,
+    "",
+    `Someone asked to reset the password for your Parents Go To account (${user.email}). If it was you, open this link to choose a new password:`,
+    "",
+    link,
+    "",
+    `The link works once and stops working after ${RESET_MINUTES} minutes. If you didn't ask, you can ignore this email: your password stays the same.`,
+    "",
+    "Parents Go To",
+  ].join("\n");
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#1d2a26;max-width:520px">
+<p>Hi ${escapeHtml(name)},</p>
+<p>Someone asked to reset the password for your Parents Go To account (${escapeHtml(user.email)}). If it was you, choose a new password here:</p>
+<p><a href="${escapeHtml(link)}" style="display:inline-block;background:#0D3B32;color:#ffffff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Choose a new password</a></p>
+<p style="font-size:14px;color:#4b5a55">Or copy this address into your browser:<br>${escapeHtml(link)}</p>
+<p style="font-size:14px;color:#4b5a55">The link works once and stops working after ${RESET_MINUTES} minutes. If you didn't ask, you can ignore this email: your password stays the same.</p>
+<p>Parents Go To</p></div>`;
+  return sendMail({ to: user.email, subject: "Reset your Parents Go To password", text, html });
+};
+
+const tellAdmins = (user, why) =>
+  notifyAdmins({
+    kind: "account",
+    tone: "info",
+    title: `Password reset requested — ${user.email}`,
+    body: why || "Give them a temporary password from Accounts.",
+    go: "accounts",
+    tag: `reset-${user.email}`,
+  });
+
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body || {};
@@ -568,25 +725,191 @@ const forgotPassword = async (req, res) => {
       return res.status(400).json({ success: false, message: "Enter a valid email address" });
     }
 
+    const byEmail = mailEnabled();
     const user = await User.findOne({ email: lower(email) });
     if (user && user.role !== "student") {
-      await writeAudit({ kind: "auth", what: "Password reset requested", who: user.email, user: user._id });
-      await notifyAdmins({
-        kind: "account",
-        tone: "info",
-        title: `Password reset requested — ${user.email}`,
-        body: "Give them a temporary password from Accounts.",
-        go: "accounts",
-        tag: `reset-${user.email}`,
-      });
+      if (!byEmail) {
+        await writeAudit({ kind: "auth", what: "Password reset requested", who: user.email, user: user._id });
+        await tellAdmins(user);
+      } else if (!user.resetRequestedAt || Date.now() - user.resetRequestedAt.getTime() > RESET_RESEND_SECONDS * 1000) {
+        const token = crypto.randomBytes(32).toString("hex");
+        user.resetTokenHash = hashToken(token);
+        user.resetTokenExpires = new Date(Date.now() + RESET_MINUTES * 60 * 1000);
+        user.resetRequestedAt = new Date();
+        await user.save();
+        // Not awaited, so the answer takes as long whether or not the email
+        // has an account. If sending fails, the administrators are told.
+        sendResetEmail(user, `${resetPageFor(req)}#reset=${token}`)
+          .then(() => writeAudit({ kind: "auth", what: "Password reset email sent", who: user.email, user: user._id }))
+          .catch(async (error) => {
+            console.error("Reset email error:", error.message);
+            try {
+              await writeAudit({ kind: "auth", what: "Password reset email could not be sent", who: user.email, detail: error.message.slice(0, 200), user: user._id });
+              await tellAdmins(user, "The reset email could not be sent. Give them a temporary password from Accounts.");
+            } catch (e) {
+              console.error("Reset email fallback error:", e.message);
+            }
+          });
+      }
     }
 
     return res.json({
       success: true,
-      message: "If that email has an account, an administrator will be in touch with a temporary password.",
+      mode: byEmail ? "email" : "admin",
+      message: byEmail
+        ? "If that email has an account, we've sent a link to choose a new password."
+        : "If that email has an account, an administrator will be in touch with a temporary password.",
     });
   } catch (error) {
     console.error("Forgot password error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// RESET PASSWORD (from the emailed link)
+// Body { token, password }. The link works once, for 30 minutes. It also
+// lifts a lockout from too many wrong passwords (the person has shown they
+// own the inbox), but not a suspension by an administrator. Every other
+// session is signed out. Parents are signed in straight away; administrators
+// sign in again, so the administrator code is still needed.
+const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    if (!token || !password) {
+      return res.status(400).json({ success: false, message: "Choose a new password" });
+    }
+
+    const user = await User.findOne({ resetTokenHash: hashToken(token), resetTokenExpires: { $gt: new Date() } });
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        code: "RESET_EXPIRED",
+        message: "That reset link has expired or has already been used. Ask for a new one.",
+      });
+    }
+
+    const min = MIN_PASSWORD[user.role] || 8;
+    if (String(password).length < min) {
+      return res.status(400).json({ success: false, message: `Your new password needs at least ${min} characters` });
+    }
+    if (user.status === "suspended" && !user.lockedOut) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_SUSPENDED",
+        message: "That account has been suspended by an administrator",
+      });
+    }
+
+    user.password = await bcrypt.hash(String(password), 10);
+    user.tempPassword = false;
+    user.passwordChangedAt = new Date();
+    user.failedLogins = 0;
+    if (user.lockedOut) {
+      user.lockedOut = false;
+      user.status = "active";
+    }
+    user.resetTokenHash = null;
+    user.resetTokenExpires = null;
+    user.tokenVersion += 1;
+    if (user.role !== "admin") user.lastSeen = new Date();
+    await user.save();
+
+    await writeAudit({ kind: "auth", what: "Password reset with an emailed link", who: user.email, user: user._id });
+
+    if (user.role === "admin") {
+      return res.json({ success: true, signIn: true, message: "Password changed. Sign in with it as an administrator." });
+    }
+    return res.json({ success: true, message: "Password changed", token: generateToken(user), user: publicUser(user) });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// CONFIRM EMAIL (new accounts, when email is set up)
+const CONFIRM_HOURS = 24;
+
+const sendConfirmEmail = (user, link) => {
+  const name = user.name || "there";
+  const text = [
+    `Hi ${name},`,
+    "",
+    `Welcome to Parents Go To. Please confirm your email address (${user.email}) to finish creating your account:`,
+    "",
+    link,
+    "",
+    `The link works once and stops working after ${CONFIRM_HOURS} hours. If you didn't sign up, you can ignore this email and the account won't be used.`,
+    "",
+    "Parents Go To",
+  ].join("\n");
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#1d2a26;max-width:520px">
+<p>Hi ${escapeHtml(name)},</p>
+<p>Welcome to Parents Go To. Please confirm your email address (${escapeHtml(user.email)}) to finish creating your account:</p>
+<p><a href="${escapeHtml(link)}" style="display:inline-block;background:#0D3B32;color:#ffffff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Confirm my email</a></p>
+<p style="font-size:14px;color:#4b5a55">Or copy this address into your browser:<br>${escapeHtml(link)}</p>
+<p style="font-size:14px;color:#4b5a55">The link works once and stops working after ${CONFIRM_HOURS} hours. If you didn't sign up, you can ignore this email and the account won't be used.</p>
+<p>Parents Go To</p></div>`;
+  return sendMail({ to: user.email, subject: "Confirm your email for Parents Go To", text, html });
+};
+
+// A new link (replacing any older one), emailed without waiting for it.
+const startConfirmation = async (user, req) => {
+  const token = crypto.randomBytes(32).toString("hex");
+  user.confirmTokenHash = hashToken(token);
+  user.confirmTokenExpires = new Date(Date.now() + CONFIRM_HOURS * 60 * 60 * 1000);
+  user.confirmSentAt = new Date();
+  await user.save();
+  sendConfirmEmail(user, `${resetPageFor(req)}#confirm=${token}`).catch((error) => {
+    console.error("Confirmation email error:", error.message);
+    writeAudit({ kind: "auth", what: "Confirmation email could not be sent", who: user.email, detail: error.message.slice(0, 200), user: user._id }).catch(() => {});
+  });
+};
+
+// POST /api/auth/confirm-email  { token } -> signs the person in
+const confirmEmail = async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    const user = token
+      ? await User.findOne({ confirmTokenHash: hashToken(token), confirmTokenExpires: { $gt: new Date() } })
+      : null;
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        code: "CONFIRM_EXPIRED",
+        message: "That confirmation link has expired or has already been used. Sign in to get a new one.",
+      });
+    }
+    if (user.status === "suspended") {
+      return res.status(403).json({ success: false, code: "ACCOUNT_SUSPENDED", message: "Your account has been suspended" });
+    }
+    user.emailConfirmed = true;
+    user.confirmTokenHash = null;
+    user.confirmTokenExpires = null;
+    user.lastSeen = new Date();
+    await user.save();
+    await writeAudit({ kind: "auth", what: "Email address confirmed", who: user.email, user: user._id });
+    return res.json({ success: true, message: "Email confirmed", token: generateToken(user), user: publicUser(user) });
+  } catch (error) {
+    console.error("Confirm email error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// POST /api/auth/resend-confirmation  { email } — same answer for any email
+const resendConfirmation = async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!isEmail(email)) {
+      return res.status(400).json({ success: false, message: "Enter a valid email address" });
+    }
+    if (mailEnabled()) {
+      const user = await User.findOne({ email: lower(email) });
+      const recent = user && user.confirmSentAt && Date.now() - user.confirmSentAt.getTime() < RESET_RESEND_SECONDS * 1000;
+      if (user && user.emailConfirmed === false && !recent) await startConfirmation(user, req);
+    }
+    return res.json({ success: true, message: "If that account still needs confirming, we've sent a new link." });
+  } catch (error) {
+    console.error("Resend confirmation error:", error);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -601,6 +924,9 @@ module.exports = {
   changePassword,
   deleteMe,
   forgotPassword,
+  resetPassword,
+  confirmEmail,
+  resendConfirmation,
   verifyPassword,
   logoutOthers,
   MIN_PASSWORD,

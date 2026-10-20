@@ -10,6 +10,9 @@ const {
   changePassword,
   deleteMe,
   forgotPassword,
+  resetPassword,
+  confirmEmail,
+  resendConfirmation,
   verifyPassword,
   logoutOthers,
 } = require("../controllers/authController");
@@ -47,6 +50,13 @@ router.post("/login", signInLimit, login);
 router.post("/admin-code", signInLimit, verifyAdminCode);
 
 router.post("/forgot-password", forgotLimit, forgotPassword);
+
+router.post("/reset-password", signInLimit, resetPassword);
+
+// New accounts confirm their email address (when email is set up).
+router.post("/confirm-email", signInLimit, confirmEmail);
+
+router.post("/resend-confirmation", forgotLimit, resendConfirmation);
 
 router.get("/me", protect, getMe);
 

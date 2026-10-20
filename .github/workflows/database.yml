@@ -1,7 +1,9 @@
 # Run by hand from the repository's Actions tab: "Database tasks" > Run workflow.
 #
-#   test  runs the test suites against the MONGODB_URI_TEST database
-#   seed  adds the demo accounts and sample content to the MONGODB_URI database
+#   test       runs the test suites against the MONGODB_URI_TEST database
+#   seed       adds the demo accounts and sample content to the MONGODB_URI database
+#   add-admin  adds an administrator (fill in admin_email and admin_name); they
+#              set their own password with "Forgot your password?" on the site
 #
 # Uses these repository secrets (Settings > Secrets and variables > Actions):
 # MONGODB_URI, MONGODB_URI_TEST, SEED_ADMIN_PASSWORD, SEED_PARENT_PASSWORD.
@@ -13,8 +15,16 @@ on:
       task:
         description: What to run
         type: choice
-        options: [test, seed]
+        options: [test, seed, add-admin]
         default: test
+      admin_email:
+        description: "add-admin only: the administrator's email (they sign in with it and get their codes there)"
+        type: string
+        required: false
+      admin_name:
+        description: "add-admin only: their name"
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -98,3 +108,27 @@ jobs:
             exit $code
           fi
           echo "::notice::Demo data is ready: admin and demo parent accounts created."
+
+  add-admin:
+    if: inputs.task == 'add-admin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      ADMIN_EMAIL: ${{ inputs.admin_email }}
+      ADMIN_NAME: ${{ inputs.admin_name }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Add the administrator
+        run: |
+          if node scripts/add-admin.js --email "$ADMIN_EMAIL" --name "$ADMIN_NAME" > add-admin.log 2>&1; then
+            echo "::notice::$(head -n 1 add-admin.log)"
+          else
+            echo "::error::$(tail -n 1 add-admin.log)"
+            exit 1
+          fi

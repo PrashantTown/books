@@ -18,10 +18,13 @@ Base URL: `http://localhost:5000` locally, or your deployed address.
 
 | Method | Path | Who | What |
 |---|---|---|---|
-| POST | `/register` | public | Create a **parent** account. Body `{ name, email, password }` (password 8+). `role` other than `"parent"` → 403. Returns `{ token, user }`. Duplicate email → 409 |
-| POST | `/login` | public | Body `{ email, password, role? }`. `role` (`"parent"`/`"admin"`) checks the account is that kind, after the password. Returns `{ token, user }`, or for administrators when `ADMIN_LOGIN_CODE` is set `{ codeRequired: true, challenge }` |
-| POST | `/admin-code` | public | Body `{ challenge, code }` → `{ token, user }`. Three wrong codes end the attempt |
-| POST | `/forgot-password` | public | Body `{ email }`. Always the same answer; for a real account the administrators get a notification to issue a temporary password |
+| POST | `/register` | public | Create a **parent** account. Body `{ name, email, password }` (password 8+). `role` other than `"parent"` → 403. Returns `{ token, user }`; with email set up, `{ confirm: true }` instead and a confirmation link is emailed (the account can't sign in until it's opened). Duplicate email → 409 |
+| POST | `/login` | public | Body `{ email, password, role? }`. `role` (`"parent"`/`"admin"`) checks the account is that kind, after the password. Returns `{ token, user }`. Administrators get `{ codeRequired: true, challenge, via }` instead: with email set up (`via: "email"`, plus a masked `sentTo`) a fresh six-digit code is emailed to their sign-in address and lasts 10 minutes; otherwise (`via: "code"`) they use the shared `ADMIN_LOGIN_CODE`, if set. An account that hasn't confirmed its email → 403 `EMAIL_NOT_CONFIRMED` |
+| POST | `/admin-code` | public | Body `{ challenge, code }` → `{ token, user }`. Three wrong codes end the attempt; an expired emailed code → 401 `CHALLENGE_EXPIRED` |
+| POST | `/forgot-password` | public | Body `{ email }`. Always the same answer, with `mode`: `"email"` (a one-time link to `…/reading-for-pleasure.html#reset=<token>` is emailed; it lasts 30 minutes) or `"admin"` (no email set up: the administrators are notified to issue a temporary password) |
+| POST | `/reset-password` | public | Body `{ token, password }` from the emailed link. Works once. Lifts a lockout from wrong passwords, signs out other sessions, and returns `{ token, user }` for parents (administrators sign in again, so their code still applies). Bad or used link → 400 `RESET_EXPIRED` |
+| POST | `/confirm-email` | public | Body `{ token }` from the link emailed at sign-up (`#confirm=<token>`, lasts 24 hours) → `{ token, user }`. Bad or used link → 400 `CONFIRM_EXPIRED` |
+| POST | `/resend-confirmation` | public | Body `{ email }`. Emails a new confirmation link if that account still needs one (at most once a minute). Always the same answer |
 | GET | `/me` | signed in | The current user |
 | PATCH | `/me` | signed in | Body `{ name?, email? }`. Email taken → 409. Changing email also moves chats, invitations and notifications to the new address |
 | PUT | `/password` | signed in | Body `{ currentPassword, newPassword }` (parents 8+, admins 12+). Signs out other devices; returns a new `token`. Wrong current → 401 `WRONG_PASSWORD` |

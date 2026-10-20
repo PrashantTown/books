@@ -78,6 +78,55 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // "Forgot your password?": a SHA-256 hash of the one-time token in the
+    // emailed link (the token itself is never stored), when it stops working,
+    // and when the last email was sent (to avoid flooding an inbox).
+    resetTokenHash: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    resetTokenExpires: {
+      type: Date,
+      default: null,
+    },
+    resetRequestedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // New accounts confirm their email address by opening an emailed link
+    // (only when email is set up). Accounts made before that, by an
+    // administrator or by the seed script count as confirmed.
+    emailConfirmed: {
+      type: Boolean,
+      default: true,
+    },
+    confirmTokenHash: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    confirmTokenExpires: {
+      type: Date,
+      default: null,
+    },
+    confirmSentAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Administrators: a hash of the six-digit sign-in code we emailed them,
+    // and when it stops working (only when email is set up).
+    adminCodeHash: {
+      type: String,
+      default: null,
+    },
+    adminCodeExpires: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
