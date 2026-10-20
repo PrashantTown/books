@@ -134,8 +134,8 @@ jobs:
           FLAGS=""
           if [ "$PROMOTE" = "true" ]; then FLAGS="--promote"; fi
           if node scripts/add-admin.js --email "$ADMIN_EMAIL" --name "$ADMIN_NAME" $FLAGS > add-admin.log 2>&1; then
-            echo "::notice::$(head -n 1 add-admin.log)"
+            echo "::notice::$(grep -v 'injected env' add-admin.log | head -n 1)"
           else
-            echo "::error::$(tail -n 1 add-admin.log)"
+            echo "::error::$(grep -v 'injected env' add-admin.log | tail -n 1)"
             exit 1
           fi

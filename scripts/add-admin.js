@@ -21,7 +21,7 @@ const dotenv = require("dotenv");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const User = require("../src/models/User");
 const { writeAudit } = require("../src/utils/audit");
