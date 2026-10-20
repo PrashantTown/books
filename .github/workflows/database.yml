@@ -2,6 +2,8 @@
 #
 #   test       runs the test suites against the MONGODB_URI_TEST database
 #   seed       adds the demo accounts and sample content to the MONGODB_URI database
+#   catalogue  adds any starter books missing from "Discover books" (books the
+#              administrators already have are left exactly as they are)
 #   add-admin  adds an administrator (fill in admin_email and admin_name); they
 #              set their own password with "Forgot your password?" on the site
 #
@@ -15,7 +17,7 @@ on:
       task:
         description: What to run
         type: choice
-        options: [test, seed, add-admin]
+        options: [test, seed, catalogue, add-admin]
         default: test
       admin_email:
         description: "add-admin only: the administrator's email (they sign in with it and get their codes there)"
@@ -112,6 +114,28 @@ jobs:
             exit $code
           fi
           echo "::notice::Demo data is ready: admin and demo parent accounts created."
+
+  catalogue:
+    if: inputs.task == 'catalogue'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MONGODB_URI: ${{ secrets.MONGODB_URI }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Add missing starter books
+        run: |
+          if node scripts/seed.js --catalogue > catalogue.log 2>&1; then
+            echo "::notice::$(grep -v 'injected env' catalogue.log | grep -v '^\s*$' | tail -n 1)"
+          else
+            echo "::error::$(grep -v 'injected env' catalogue.log | grep -v '^\s*$' | tail -n 1)"
+            exit 1
+          fi
 
   add-admin:
     if: inputs.task == 'add-admin'

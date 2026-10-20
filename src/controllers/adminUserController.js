@@ -9,6 +9,85 @@ const { writeAudit } = require("../utils/audit");
 const { deleteAccountAndData } = require("../utils/accountCleanup");
 const { isEmail, isObjectId, text, lower, ms } = require("../utils/validate");
 const { MIN_PASSWORD } = require("./authController");
+const { sendMail, mailEnabled } = require("../utils/mailer");
+const { sitePage } = require("../utils/siteLink");
+const { hashToken, newToken, escapeHtml } = require("../utils/tokens");
+
+// POST /api/admin/admins  { email, name }
+// Adds another administrator. Nobody chooses a password for them: they get
+// an email with a link to set their own (it lasts 48 hours), and after that
+// each sign-in emails them a six-digit code. Needs email to be set up.
+const ADMIN_INVITE_HOURS = 48;
+const addAdmin = async (req, res) => {
+  try {
+    const email = lower((req.body || {}).email);
+    const name = text((req.body || {}).name, 120) || email.split("@")[0];
+    if (!isEmail(email)) return res.status(400).json({ success: false, message: "Enter a valid email address" });
+    if (!mailEnabled()) {
+      return res.status(503).json({
+        success: false,
+        code: "EMAIL_OFF",
+        message: "Set up email on the server first: new administrators choose their password from an emailed link.",
+      });
+    }
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: existing.role === "admin" ? "That email is already an administrator." : "That email already has a family account. Use a different email for the administrator.",
+      });
+    }
+
+    const token = newToken();
+    const user = await User.create({
+      name,
+      email,
+      password: await bcrypt.hash(newToken(), 10),
+      role: "admin",
+      emailConfirmed: true,
+      resetTokenHash: hashToken(token),
+      resetTokenExpires: new Date(Date.now() + ADMIN_INVITE_HOURS * 60 * 60 * 1000),
+      resetRequestedAt: new Date(),
+    });
+
+    const link = `${sitePage(req)}#reset=${token}`;
+    const by = req.user.name || req.user.email;
+    try {
+      await sendMail({
+        to: email,
+        subject: "You've been added as an administrator of Parents Go To",
+        replyTo: req.user.email,
+        text: [
+          `Hi ${name},`,
+          "",
+          `${by} has added you as an administrator of Parents Go To. Choose your password here:`,
+          "",
+          link,
+          "",
+          `The link works once and lasts ${ADMIN_INVITE_HOURS} hours. Then sign in with ${email} and choose Administrator; each time, we'll email you a six-digit code to finish signing in.`,
+          "",
+          "Parents Go To",
+        ].join("\n"),
+        html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#1d2a26;max-width:520px">
+<p>Hi ${escapeHtml(name)},</p>
+<p>${escapeHtml(by)} has added you as an administrator of Parents Go To.</p>
+<p><a href="${escapeHtml(link)}" style="display:inline-block;background:#0D3B32;color:#ffffff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Choose your password</a></p>
+<p style="font-size:14px;color:#4b5a55">The link works once and lasts ${ADMIN_INVITE_HOURS} hours. Then sign in with ${escapeHtml(email)} and choose Administrator; each time, we'll email you a six-digit code to finish signing in.</p>
+<p>Parents Go To</p></div>`,
+      });
+    } catch (error) {
+      await User.deleteOne({ _id: user._id });
+      console.error("Admin invitation email error:", error.message);
+      return res.status(502).json({ success: false, message: "The invitation email couldn't be sent, so the administrator wasn't added. Try again in a minute." });
+    }
+
+    await writeAudit({ kind: "account", what: "Administrator added", who: req.user.email, detail: email, user: user._id });
+    return res.status(201).json({ success: true, emailed: true, user: { id: String(user._id), email, name, role: "admin" } });
+  } catch (error) {
+    console.error("Add administrator error:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
 
 /** Count documents per owner, e.g. { "<userId>": 3 }. */
 const countBy = async (Model, field, match = {}) => {
@@ -219,4 +298,4 @@ const deleteUser = async (req, res) => {
   }
 };
 
-module.exports = { listUsers, createUser, setStatus, setTempPassword, deleteUser };
+module.exports = { listUsers, createUser, setStatus, setTempPassword, deleteUser, addAdmin };

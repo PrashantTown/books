@@ -4,6 +4,8 @@ The API behind the Parents Go To "Reading for Pleasure" site: accounts, each fam
 
 Built with Node.js, Express 5, MongoDB (Mongoose) and JWT sign-in tokens.
 
+- **Live site:** <https://parents-go-to-live.vercel.app> (frontend: [PrashantTown/Parents-Go-To](https://github.com/PrashantTown/Parents-Go-To))
+- **Live API:** <https://parents-go-to-api.onrender.com/api/health> (Render, with MongoDB Atlas)
 - **API reference:** [docs/API.md](docs/API.md)
 - **Handover notes (what changed and why, for the team):** [docs/HANDOVER.md](docs/HANDOVER.md)
 
@@ -31,18 +33,26 @@ Check it's up: <http://localhost:5000/api/health>
 
 Administrators also enter a six-digit code after their password: with email set up, a fresh code is emailed to them for every sign-in; without it, the shared `ADMIN_LOGIN_CODE` (if set). Change these passwords (or the `SEED_*` values in `.env`) before sharing the site with anyone.
 
-**Email** (optional, free): with `BREVO_API_KEY` and `MAIL_FROM` set (see `.env.example`), "Forgot your password?" emails a reset link, new accounts confirm their email address, and administrators get their sign-in codes by email. To add an administrator, run the **Database tasks** workflow with `add-admin`; they then set their password with "Forgot your password?".
+**Email** (optional, free): with `BREVO_API_KEY` and `MAIL_FROM` set (see `.env.example`):
 
-`npm run seed -- --reset` removes the demo accounts and adds them again fresh. The seed refuses to run when `NODE_ENV=production` unless you add `--force`.
+- "Forgot your password?" emails a reset link;
+- new accounts confirm their email address;
+- administrators get a fresh sign-in code by email every time;
+- contact-page messages and problem reports are emailed to the team (`SUPPORT_EMAIL`, or every administrator);
+- carer invitations are emailed to the person invited.
+
+**Adding an administrator:** in the console, **Accounts > Add an administrator** emails them a link to choose their password (this needs email set up). Without email, run the **Database tasks** workflow with `add-admin`.
+
+`npm run seed -- --reset` removes the demo accounts and adds them again fresh; `npm run seed -- --catalogue` only adds starter books missing from "Discover books". The seed refuses to run when `NODE_ENV=production` unless you add `--force`.
 
 ## Connect the frontend
 
-The frontend (the `Parents_Go_To` site) reads the API address from its `config.js`:
+The frontend ([PrashantTown/Parents-Go-To](https://github.com/PrashantTown/Parents-Go-To)) reads the API address from its `config.js`:
 
 - On `localhost` it uses `http://localhost:5000` automatically.
-- For the live site, set `DEPLOYED_API` in `config.js` to this API's public address.
+- Anywhere else it uses the live API, `https://parents-go-to-api.onrender.com`.
 
-Then allow the site to call the API by adding its address to `CORS_ORIGINS` in this backend's `.env`, for example `CORS_ORIGINS=https://parents-go-to.vercel.app`.
+If the API moves, change `apiBase` in `config.js` and the API address in `connect-src` of each page's Content-Security-Policy. The site's address must also be in `CORS_ORIGINS` here (`render.yaml` lists the Vercel sites). The frontend's `BACKEND.md` explains its side.
 
 To try both together locally, serve the frontend folder with any static server, for example `npx serve -l 5500 .` or `python3 -m http.server 5500`, and open <http://localhost:5500/reading-for-pleasure.html>.
 
@@ -53,12 +63,12 @@ All of them are described in [.env.example](.env.example). The two you must set 
 ## Tests
 
 ```bash
-npm test               # everything: 126 tests
-npm run test:api       # just the API tests added for the frontend (48 tests)
+npm test               # everything: 131 tests
+npm run test:api       # just the API tests added for the frontend (77 tests)
 npm run test:integration
 ```
 
-All 126 pass, whatever the time of day or the machine's time zone. The tests use the database in `MONGODB_URI`, create their own users with unique emails, and remove them afterwards. Point it at a test database, not your live one. On GitHub, the **Database tasks** workflow runs them against Atlas (see Deploy).
+All 131 pass, whatever the time of day or the machine's time zone. The tests use the database in `MONGODB_URI`, create their own users with unique emails, and remove them afterwards. Point it at a test database, not your live one. On GitHub, the **Database tasks** workflow runs them against Atlas (see Deploy).
 
 The reading-hours limits are checked on the server's clock. `render.yaml` sets `TZ=Australia/Brisbane`, so a family's 7 pm limit means 7 pm in Brisbane. If families in other time zones need it later, store a time zone per family.
 
@@ -76,8 +86,9 @@ The reading-hours limits are checked on the server's clock. `render.yaml` sets `
    - `SEED_ADMIN_PASSWORD`: 12 or more characters
    - `SEED_PARENT_PASSWORD`
 
-   Then run the **Database tasks** workflow from the Actions tab: `seed` once to create the accounts, and `test` to run the tests against Atlas.
-4. **Frontend:** set `DEPLOYED_API` in the frontend's `config.js` to the Render address, and redeploy the site on Vercel.
+   Then run the **Database tasks** workflow from the Actions tab: `seed` once to create the accounts, and `test` to run the tests against Atlas. `catalogue` adds any new starter books to "Discover books" without touching anything else.
+4. **Email:** create a free [Brevo](https://www.brevo.com) account, verify the sender address, create an API key, then on Render add `BREVO_API_KEY` and `MAIL_FROM` under **Environment**. `https://<your-api>/api/health` then shows `"email": true`. (Render's free plan blocks SMTP, so the API sends through Brevo's web API.)
+5. **Frontend:** `config.js` already points at the Render address; Vercel redeploys the site on every push to `main`.
 
 Any other Node host works too: build with `npm ci`, start with `npm start`, and set the variables listed in `.env.example`.
 
@@ -102,8 +113,8 @@ docs/                 API reference and handover notes
 
 | Area | Base path | Notes |
 |---|---|---|
-| Accounts and sign-in | `/api/auth` | Sign-up (parents), sign-in with lockout, admin code, profile, password, delete account, forgot password |
-| Admin | `/api/admin` | Dashboard stats, list/create/suspend/restore/delete accounts, temporary passwords |
+| Accounts and sign-in | `/api/auth` | Sign-up (parents) with email confirmation, sign-in with lockout, emailed admin code, profile, password, delete account, password reset by email |
+| Admin | `/api/admin` | Dashboard stats, list/create/suspend/restore/delete accounts, add administrators by email |
 | Family shelf | `/api/shelf` | Children, library, wishlist, reading log, activity, bedtime |
 | Children | `/api/children` | Original endpoints; shelf children are stored here too |
 | Settings and small per-person data | `/api/me/data`, `/api/settings/platform` | Preferences, reading interests, avatars, welcome steps; platform rules |
@@ -115,11 +126,13 @@ docs/                 API reference and handover notes
 | Carers | `/api/family` | Invite, accept, withdraw |
 | Chat | `/api/chat` | Parent–child profile and parent–carer conversations |
 | Shared wishlists | `/api/share` | Owner manages; anyone with the link can view |
+| Projects and book catalogue | `/api/projects`, `/api/catalogue` | Home-page project tiles; "Discover books" (including free classics from Project Gutenberg) |
 | Catalogue, parental controls, timed reading, student wishlist and reviews | `/api/books`, `/api/parental-controls`, `/api/reading-sessions`, `/api/wishlist`, `/api/reviews` | Original features, unchanged; not used by the current frontend |
 
 ## Security notes
 
-- Public sign-up only creates **parent** accounts. Administrators are created by another administrator (`POST /api/admin/users`) or by the seed script.
+- Public sign-up only creates **parent** accounts. Administrators are added by another administrator (the console's **Add an administrator**, which emails them a link), by the `add-admin` workflow, or by the seed script.
+- One-time links (password reset, email confirmation, administrator invitations) and emailed sign-in codes are stored only as SHA-256 hashes, and expire (30 minutes, 24 hours, 48 hours and 10 minutes).
 - Passwords are hashed with bcrypt; sign-in tokens last 7 days and are revoked on sign-out, password change and suspension.
 - Parent accounts lock after the number of wrong passwords set in the console (default 5); administrators are told. Administrator accounts don't auto-lock (so nobody can lock every admin out) but are rate-limited like everyone else.
 - Community posts are checked on the server with the same rules the console sets (hold everything / hold names / hold unknown links), so the check can't be skipped from the browser.

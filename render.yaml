@@ -38,3 +38,9 @@ services:
       # dashboard; until then these emails are off and ADMIN_LOGIN_CODE is used.
       - key: MAIL_FROM_NAME
         value: Parents Go To
+      # Where links in emails open when a request didn't come from one of the
+      # CORS_ORIGINS sites (they normally do). Contact messages and problem
+      # reports are emailed to every administrator, or to SUPPORT_EMAIL if you
+      # add it (comma-separated addresses).
+      - key: SITE_URL
+        value: https://parents-go-to-live.vercel.app

@@ -58,24 +58,26 @@ const post = async (url, headers, body) => {
   }
 };
 
-// sendMail({ to, subject, text, html }) resolves once the service accepts it.
-const sendMail = async ({ to, subject, text, html }) => {
+// sendMail({ to, subject, text, html, replyTo }) resolves once the service
+// accepts it. replyTo (optional) is where replies go.
+const sendMail = async ({ to, subject, text, html, replyTo }) => {
   const sender = from();
+  const reply = replyTo && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(replyTo)) ? String(replyTo) : "";
   switch (provider()) {
     case "brevo":
       return post(
         "https://api.brevo.com/v3/smtp/email",
         { "api-key": process.env.BREVO_API_KEY },
-        { sender, to: [{ email: to }], subject, textContent: text, htmlContent: html }
+        { sender, to: [{ email: to }], subject, textContent: text, htmlContent: html, ...(reply ? { replyTo: { email: reply } } : {}) }
       );
     case "resend":
       return post(
         "https://api.resend.com/emails",
         { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
-        { from: `${sender.name} <${sender.email}>`, to: [to], subject, text, html }
+        { from: `${sender.name} <${sender.email}>`, to: [to], subject, text, html, ...(reply ? { reply_to: reply } : {}) }
       );
     case "log":
-      outbox.push({ to, subject, text, html, at: Date.now() });
+      outbox.push({ to, subject, text, html, replyTo: reply, at: Date.now() });
       if (outbox.length > 50) outbox.shift();
       if (process.env.NODE_ENV !== "test") console.log(`[mail] to ${to}: ${subject}\n${text}\n`);
       return undefined;

@@ -11,6 +11,8 @@ const { deleteAccountAndData } = require("../utils/accountCleanup");
 const { renameAccountEmail } = require("../utils/emailRename");
 const { isEmail, text, lower } = require("../utils/validate");
 const { sendMail, mailEnabled } = require("../utils/mailer");
+const { sitePage } = require("../utils/siteLink");
+const { hashToken, escapeHtml } = require("../utils/tokens");
 
 const MIN_PASSWORD = { parent: 8, student: 8, admin: 12 };
 
@@ -662,28 +664,8 @@ const logoutOthers = async (req, res) => {
 // answer is the same whether or not the email has an account.
 const RESET_MINUTES = 30;
 const RESET_RESEND_SECONDS = 60;
-const RESET_PAGE = "/reading-for-pleasure.html";
 
-const hashToken = (token) => crypto.createHash("sha256").update(String(token)).digest("hex");
-
-const escapeHtml = (value) =>
-  String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-
-// Where the emailed link points: the site the request came from when it is
-// one of the allowed sites (CORS_ORIGINS), otherwise SITE_URL, otherwise the
-// first allowed site.
-const resetPageFor = (req) => {
-  const allowed = String(process.env.CORS_ORIGINS || "")
-    .split(",")
-    .map((o) => o.trim().replace(/\/$/, ""))
-    .filter(Boolean);
-  const origin = String(req.get("origin") || "").replace(/\/$/, "");
-  const local = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-  if (origin && (allowed.includes(origin) || (!allowed.length && local))) return origin + RESET_PAGE;
-  const site = String(process.env.SITE_URL || "").trim().replace(/\/$/, "");
-  if (site) return /\.html$/.test(site) ? site : site + RESET_PAGE;
-  return (allowed[0] || "http://localhost:5500") + RESET_PAGE;
-};
+const resetPageFor = sitePage;
 
 const sendResetEmail = (user, link) => {
   const name = user.name || "there";

@@ -237,3 +237,75 @@ describe("Administrators get their own sign-in code by email", () => {
     expect(res.body.codeRequired).toBeUndefined();
   });
 });
+
+describe("Emails to the team, invitations and new administrators", () => {
+  const latestTo = (email, re) => mailOutbox.filter((m) => m.to === email && (!re || re.test(m.subject))).pop();
+  let chief;
+  let chiefToken;
+
+  beforeAll(async () => {
+    chief = await h.makeUser("chief", "admin");
+    const started = await h.request().post("/api/auth/login").send({ email: chief.email, password: PASSWORD, role: "admin" });
+    const mail = latestTo(chief.email, /sign-in code/);
+    const code = mail.text.match(/\b(\d{6})\b/)[1];
+    chiefToken = (await h.request().post("/api/auth/admin-code").send({ challenge: started.body.challenge, code })).body.token;
+  });
+
+  test("the health check says email is on", async () => {
+    expect((await h.request().get("/api/health")).body.email).toBe(true);
+  });
+
+  test("a contact-page message is emailed to the administrators, and replies go to the sender", async () => {
+    const res = await h
+      .request()
+      .post("/api/support")
+      .send({ name: "Vera Visitor", from: `vera.${h.runId}@test.com`, replyTo: `vera.${h.runId}@test.com`, area: "Contact page: Accounts", severity: "med", body: "Do you run Saturday sessions?" });
+    expect(res.status).toBe(201);
+    const mail = latestTo(chief.email, /New message from Vera Visitor/);
+    expect(mail).toBeTruthy();
+    expect(mail.replyTo).toBe(`vera.${h.runId}@test.com`);
+    expect(mail.text).toContain("Do you run Saturday sessions?");
+    expect(mail.text).toContain(res.body.item.ref);
+  });
+
+  test("SUPPORT_EMAIL sends them to a chosen inbox instead", async () => {
+    process.env.SUPPORT_EMAIL = `inbox.${h.runId}@test.com`;
+    await h.request().post("/api/support").send({ name: "Kim", from: `kim.${h.runId}@test.com`, area: "Keep me posted", body: "Please let me know." });
+    delete process.env.SUPPORT_EMAIL;
+    expect(latestTo(`inbox.${h.runId}@test.com`, /Keep me posted/)).toBeTruthy();
+  });
+
+  test("inviting a carer emails them a link to join", async () => {
+    const parentToken = (await h.request().post("/api/auth/login").send({ email: parent.email, password: "Brand-New-Pass-1" })).body.token;
+    const res = await h.as(parentToken).post("/api/family", { id: `fam-mail-${h.runId}`, name: "Nan", email: `nan.${h.runId}@test.com` });
+    expect(res.status).toBe(201);
+    expect(res.body.emailed).toBe(true);
+    const mail = latestTo(`nan.${h.runId}@test.com`, /invited you/);
+    expect(mail.text).toMatch(/\?view=create&invite=nan\./);
+    expect(mail.text).toContain(res.body.item.ref);
+  });
+
+  test("an administrator adds another; they set a password from the email, then sign in with an emailed code", async () => {
+    const newcomer = `deputy.${h.runId}@test.com`;
+    const res = await h.as(chiefToken).post("/api/admin/admins", { email: newcomer, name: "Dee Deputy" });
+    expect(res.status).toBe(201);
+    const mail = latestTo(newcomer, /added as an administrator/);
+    const token = mail.text.match(/#reset=([0-9a-f]{64})/)[1];
+
+    const set = await h.request().post("/api/auth/reset-password").send({ token, password: "Deputy-Pass-12345" });
+    expect(set.body.signIn).toBe(true);
+    const started = await h.request().post("/api/auth/login").send({ email: newcomer, password: "Deputy-Pass-12345", role: "admin" });
+    expect(started.body.via).toBe("email");
+
+    expect((await h.as(chiefToken).post("/api/admin/admins", { email: newcomer })).status).toBe(409);
+    expect((await h.as(chiefToken).post("/api/admin/admins", { email: parent.email })).status).toBe(409);
+    const parentToken = (await h.request().post("/api/auth/login").send({ email: parent.email, password: "Brand-New-Pass-1" })).body.token;
+    expect((await h.as(parentToken).post("/api/admin/admins", { email: `x.${h.runId}@test.com` })).status).toBe(403);
+
+    process.env.MAIL_PROVIDER = "";
+    const off = await h.as(chiefToken).post("/api/admin/admins", { email: `later.${h.runId}@test.com` });
+    process.env.MAIL_PROVIDER = "log";
+    expect(off.status).toBe(503);
+    expect(off.body.code).toBe("EMAIL_OFF");
+  });
+});

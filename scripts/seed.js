@@ -8,8 +8,10 @@
  *   - the team's sample resources and some parent suggestions to moderate
  *
  * Usage:
- *   npm run seed            add or refresh the demo data
- *   npm run seed -- --reset remove the demo accounts first, then add them again
+ *   npm run seed                add or refresh the demo data
+ *   npm run seed -- --reset     remove the demo accounts first, then add them again
+ *   npm run seed -- --catalogue only add the starter books missing from
+ *                               "Discover books"; nothing else is touched
  *
  * Credentials come from .env (SEED_*) or the defaults printed at the end.
  * It refuses to run with NODE_ENV=production unless you pass --force.
@@ -19,7 +21,7 @@ const dotenv = require("dotenv");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const User = require("../src/models/User");
 const Child = require("../src/models/Child");
@@ -37,6 +39,7 @@ const { bookKey } = require("../src/controllers/bookReviewController");
 const args = process.argv.slice(2);
 const RESET = args.includes("--reset");
 const FORCE = args.includes("--force");
+const CATALOGUE_ONLY = args.includes("--catalogue");
 
 const ADMIN = {
   name: process.env.SEED_ADMIN_NAME || "Site Administrator",
@@ -235,17 +238,28 @@ const CATALOGUE = [
   { clientId: "cat-free-canterville-ghost", title: "The Canterville Ghost", author: "Oscar Wilde", year: 1887, category: "chapter", ages: "9–12", note: "A funny, spooky ghost story: a family moves into a haunted English castle and refuses to be scared of its ghost. Free to read online.", link: "https://www.gutenberg.org/ebooks/14522", readLink: "https://www.gutenberg.org/ebooks/14522.html.images", cover: "https://www.gutenberg.org/cache/epub/14522/pg14522.cover.medium.jpg" },
   { clientId: "cat-free-earth-to-the-moon", title: "From the Earth to the Moon", author: "Jules Verne", year: 1865, category: "chapter", ages: "12+", note: "A space adventure written in 1865: a club of inventors build a giant cannon to send a capsule to the Moon. Great for young science fans. Free to read online.", link: "https://www.gutenberg.org/ebooks/83", readLink: "https://www.gutenberg.org/ebooks/83.html.images", cover: "https://www.gutenberg.org/cache/epub/83/pg83.cover.medium.jpg" },
   { clientId: "cat-free-twenty-thousand-leagues", title: "Twenty Thousand Leagues Under the Sea", author: "Jules Verne", year: 1870, category: "chapter", ages: "12+", note: "Captain Nemo's submarine sets out to explore the ocean depths: giant squid, sunken ships and real science. Free to read online.", link: "https://www.gutenberg.org/ebooks/164", readLink: "https://www.gutenberg.org/ebooks/164.html.images", cover: "https://www.gutenberg.org/cache/epub/164/pg164.cover.medium.jpg" },
+  { clientId: "cat-free-star-land", title: "Star-land", author: "Sir Robert Ball", year: 1889, category: "nonfic", ages: "9–12", note: "A real astronomer's talks for young people about the Sun, the Moon, the planets, comets and shooting stars. Written in 1889, so a few facts have changed since, but the wonder hasn't. Free to read online.", link: "https://www.gutenberg.org/ebooks/60318", readLink: "https://www.gutenberg.org/ebooks/60318.html.images", cover: "https://www.gutenberg.org/cache/epub/60318/pg60318.cover.medium.jpg" },
+  { clientId: "cat-free-burgess-animal-book", title: "The Burgess Animal Book for Children", author: "Thornton W. Burgess", year: 1920, category: "nonfic", ages: "7–9", note: "Old Mother Nature teaches Peter Rabbit and his friends about real animals, from mice to moose: true facts told as a story. Free to read online.", link: "https://www.gutenberg.org/ebooks/2441", readLink: "https://www.gutenberg.org/ebooks/2441.html.images", cover: "https://www.gutenberg.org/cache/epub/2441/pg2441.cover.medium.jpg" },
+  { clientId: "cat-free-childs-garden-of-verses", title: "A Child's Garden of Verses", author: "Robert Louis Stevenson", year: 1885, category: "poetry", ages: "5–7", note: "Short poems about being a child: going to bed in summer, a shadow that follows you, flying high on a swing. This edition has Jessie Willcox Smith's colour pictures. Free to read online.", link: "https://www.gutenberg.org/ebooks/25609", readLink: "https://www.gutenberg.org/ebooks/25609.html.images", cover: "https://www.gutenberg.org/cache/epub/25609/pg25609.cover.medium.jpg" },
+  { clientId: "cat-free-nonsense-songs", title: "Nonsense Songs", author: "Edward Lear", year: 1871, category: "poetry", ages: "3–5", note: "Funny rhymes to read aloud, including The Owl and the Pussy-cat and The Jumblies, who went to sea in a sieve. Free to read online.", link: "https://www.gutenberg.org/ebooks/13647", readLink: "https://www.gutenberg.org/ebooks/13647.html.images", cover: "https://www.gutenberg.org/cache/epub/13647/pg13647.cover.medium.jpg" },
   { clientId: "cat-free-sleepy-hollow", title: "The Legend of Sleepy Hollow", author: "Washington Irving", year: 1820, category: "chapter", ages: "12+", note: "The spooky tale of the Headless Horseman: a classic Halloween story for older readers, more spooky than gory. Free to read online.", link: "https://www.gutenberg.org/ebooks/41", readLink: "https://www.gutenberg.org/ebooks/41.html.images", cover: "https://www.gutenberg.org/cache/epub/41/pg41.cover.medium.jpg" },
 ];
 
-const seedCatalogue = async (admin) => {
+// onlyMissing: add books that aren't there yet and leave the rest exactly as
+// the administrators have them (edited, hidden or reordered).
+const seedCatalogue = async (admin, { onlyMissing = false } = {}) => {
+  let added = 0;
   for (const [i, book] of CATALOGUE.entries()) {
-    await CatalogueBook.findOneAndUpdate(
-      { clientId: book.clientId },
-      { $set: { ...book, source: "other", state: "published", sort: i * 10, by: admin.email } },
-      { upsert: true }
-    );
+    const fields = { ...book, source: "other", state: "published", sort: i * 10, by: admin.email };
+    if (onlyMissing) {
+      if (await CatalogueBook.exists({ clientId: book.clientId })) continue;
+      await CatalogueBook.create(fields);
+      added += 1;
+      continue;
+    }
+    await CatalogueBook.findOneAndUpdate({ clientId: book.clientId }, { $set: fields }, { upsert: true });
   }
+  return added;
 };
 
 const main = async () => {
@@ -257,9 +271,24 @@ const main = async () => {
   if (!/^mongodb(\+srv)?:\/\//.test(uri)) {
     throw new Error("MONGODB_URI must start with mongodb+srv:// (check for a missing or extra part when it was pasted)");
   }
-  if (ADMIN.password.length < 12) throw new Error("SEED_ADMIN_PASSWORD must be at least 12 characters.");
+  if (!CATALOGUE_ONLY && ADMIN.password.length < 12) throw new Error("SEED_ADMIN_PASSWORD must be at least 12 characters.");
 
   await mongoose.connect(uri);
+
+  if (CATALOGUE_ONLY) {
+    const admin = (await User.findOne({ role: "admin" }).sort({ createdAt: 1 }).select("email")) || { email: "" };
+    const added = await seedCatalogue(admin, { onlyMissing: true });
+    const total = CATALOGUE.length;
+    console.log(
+      added === 0
+        ? `Discover books: all ${total} starter books were already there, so nothing was changed.`
+        : added === total
+          ? `Discover books: added all ${total} starter books.`
+          : `Discover books: added ${added} new ${added === 1 ? "book" : "books"}; ${total - added === 1 ? "the other one was" : `the other ${total - added} were`} already there and weren't changed.`
+    );
+    await mongoose.disconnect();
+    return;
+  }
 
   if (RESET) {
     for (const email of [ADMIN.email, PARENT.email, ...SAMPLE_PARENTS.map((p) => p.email)]) {

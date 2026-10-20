@@ -44,8 +44,9 @@ Base URL: `http://localhost:5000` locally, or your deployed address.
 | GET | `/dashboard` | Counts of users and catalogue books (original endpoint) |
 | GET | `/users?role=&status=&q=` | Parents and admins (students hidden unless `role=student` or `all`). Each: `{ id, email, name, role, status, lockedOut, tempPassword, createdAt, lastSeen, passwordChangedAt, shelf: { children, books, wishlist, sessions } }` |
 | POST | `/users` | Body `{ name, email, password, role: "parent"\|"admin" }` |
+| POST | `/admins` | Body `{ email, name? }`. Adds an administrator and emails them a one-time link (lasts 48 hours) to choose their own password; after that they sign in as Administrator with their emailed code. Needs email set up (503 `EMAIL_OFF`). An email that already has an account → 409. If the email can't be sent, nothing is created (502) |
 | PATCH | `/users/:id/status` | Body `{ status: "active"\|"suspended" }`. Suspending signs them out. Not your own account |
-| POST | `/users/:id/temp-password` | Body `{ password? }` (generated if missing). Also restores access. Returns `{ password }` |
+| POST | `/users/:id/temp-password` | Body `{ password? }` (generated if missing). Also restores access. Returns `{ password }`. The console offers this only while email isn't set up; with email, people reset their own password from an emailed link |
 | DELETE | `/users/:id` | Deletes the account and its data. Not your own |
 
 ## Family shelf — `/api/shelf` (parent)
@@ -150,7 +151,7 @@ Books the team recommends ("Discover books").
 
 | Method | Path | Who | What |
 |---|---|---|---|
-| POST | `/` | public or signed in | `{ id?, ref?, body, area, severity: "low"\|"med"\|"high", severityText, diag, replyTo, shot? }`. Visitors also send `name` and `from` (email); the admins are notified. A well-formed unused `ref` (`PTG-…`) is kept, otherwise one is assigned |
+| POST | `/` | public or signed in | `{ id?, ref?, body, area, severity: "low"\|"med"\|"high", severityText, diag, replyTo, shot? }`. Visitors also send `name` and `from` (email). The admins are notified in the console and, with email set up, the message is emailed to the team (see below). A well-formed unused `ref` (`PTG-…`) is kept, otherwise one is assigned |
 | GET | `/` | signed in | Your own (admins: all) |
 | PATCH | `/:id` | admin | `{ state: "open"\|"progress"\|"closed" }` |
 | POST | `/:id/screenshot` | the reporter | `{ dataUrl: "data:image/png;base64,…", name }` — PNG, JPEG, WebP or GIF, up to 2 MB |
@@ -158,6 +159,8 @@ Books the team recommends ("Discover books").
 | DELETE | `/:id/screenshot` | reporter or admin | |
 
 Rate-limited per visitor (`RATE_LIMIT_CONTACT`).
+
+**Who gets the emails.** Contact-page messages, problem reports and "Keep me posted" sign-ups are emailed to the addresses in `SUPPORT_EMAIL` (comma-separated) or, when that isn't set, to every active administrator. Demo addresses that can't receive mail (`.test`, `.invalid`, `.example`, `.localhost`) are skipped. The email's Reply-To is the person who wrote in, so replying answers them directly, and it links to the console's support inbox.
 
 ## Notifications — `/api/notifications` (parents and admins)
 
@@ -186,7 +189,7 @@ The server also logs sign-ins, sign-outs, lockouts, password changes and resets,
 | Method | Path | What |
 |---|---|---|
 | GET | `/` | Invitations you sent, and ones sent to your email (`incoming: true`) |
-| POST | `/` | `{ id?, name, email }` — up to 12 active; the invited person is notified if they have an account |
+| POST | `/` | `{ id?, name, email }` — up to 12 active. The invited person is notified if they have an account and, with email set up, is emailed an invitation with a link to sign up (or sign in) and accept; the answer then has `emailed: true` |
 | POST | `/:id/accept` | Accept an invitation sent to your email |
 | POST | `/:id/withdraw` | Withdraw one you sent, or decline/leave one sent to you |
 | GET | `/shared` | Shelves shared with you (invitations you accepted), read-only: `{ items: [{ ownerId, ownerName, ownerEmail, linkId, acceptedAt, children, books, wishlist, sessions }] }` (newest 200 reading-log entries) |
@@ -229,7 +232,7 @@ These were in the repo before the frontend work and keep working as before. The 
 | Timed reading | `POST /api/reading-sessions/start`, `POST /:id/end`, `GET /usage/today`, `GET /history`, `GET /remaining-time` (a student's own), `GET /remaining-time/:childId` |
 | Student wishlist | `POST/DELETE /api/wishlist/:bookId`, `GET /api/wishlist`, `GET /:bookId/status` |
 | Student reviews | `POST /api/reviews/:bookId`, `GET /book/:bookId`, `GET /book/:bookId/summary`, `GET/PUT/DELETE /:id` |
-| Health | `GET /api/health` |
+| Health | `GET /api/health` → `{ success, message, email }`; `email` says whether email is set up |
 
 Changes to original endpoints:
 - **For safety:**

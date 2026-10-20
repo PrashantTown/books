@@ -5,6 +5,35 @@ const { writeAudit } = require("../utils/audit");
 const { sameUser } = require("../utils/access");
 const { isClientId, isEmail, text, lower, ms, randomToken } = require("../utils/validate");
 const { buildShelf } = require("./shelfController");
+const { sendMail, mailEnabled } = require("../utils/mailer");
+const { sitePage } = require("../utils/siteLink");
+const { escapeHtml } = require("../utils/tokens");
+
+// The invitation by email: how to join, with a link that opens "Create an
+// account" with their email filled in. Accepting happens on the site.
+const sendInviteEmail = (row, inviter, req) => {
+  const from = inviter.name || inviter.email;
+  const link = `${sitePage(req)}?view=create&invite=${encodeURIComponent(row.email)}`;
+  const text = [
+    `Hi ${row.name || "there"},`,
+    "",
+    `${from} has invited you to join their family reading shelf on Parents Go To, so you can see what the children are reading and chat with the family.`,
+    "",
+    `Create a free account, or sign in if you have one, using this email address: ${row.email}`,
+    link,
+    "",
+    `Once you're signed in, you'll be asked to accept the invitation. Your invitation code is ${row.ref}.`,
+    "",
+    "Parents Go To",
+  ].join("\n");
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#1d2a26;max-width:520px">
+<p>Hi ${escapeHtml(row.name || "there")},</p>
+<p><b>${escapeHtml(from)}</b> has invited you to join their family reading shelf on Parents Go To, so you can see what the children are reading and chat with the family.</p>
+<p><a href="${escapeHtml(link)}" style="display:inline-block;background:#0D3B32;color:#ffffff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Join the family shelf</a></p>
+<p style="font-size:14px;color:#4b5a55">Create a free account, or sign in if you have one, with <b>${escapeHtml(row.email)}</b>. Once you're signed in you'll be asked to accept. Invitation code: ${escapeHtml(row.ref)}.</p>
+<p>Parents Go To</p></div>`;
+  return sendMail({ to: row.email, subject: `${from} invited you to their family reading shelf`, text, html, replyTo: inviter.email });
+};
 
 /**
  * Sharing a family shelf with carers.
@@ -100,7 +129,19 @@ const invite = async (req, res) => {
       });
     }
 
-    return res.status(201).json({ success: true, item: inviteOut(row, req.user) });
+    // Email the invitation too (when email is set up), so they can join even
+    // without an account yet.
+    let emailed = false;
+    if (mailEnabled()) {
+      try {
+        await sendInviteEmail(row, req.user, req);
+        emailed = true;
+      } catch (error) {
+        console.error("Invitation email error:", error.message);
+      }
+    }
+
+    return res.status(201).json({ success: true, emailed, item: inviteOut(row, req.user) });
   } catch (error) {
     console.error("Invite carer error:", error);
     return res.status(500).json({ success: false, message: "Server error" });

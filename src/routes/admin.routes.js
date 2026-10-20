@@ -9,6 +9,7 @@ const {
   setStatus,
   setTempPassword,
   deleteUser,
+  addAdmin,
 } = require("../controllers/adminUserController");
 
 const router = express.Router();
@@ -27,6 +28,9 @@ router.get("/test", protect, adminOnly, (req, res) => {
 });
 
 router.get("/dashboard", protect, adminOnly, getDashboardStats);
+
+// Add another administrator: they set their password from an emailed link.
+router.post("/admins", protect, adminOnly, addAdmin);
 
 // Account management for the admin console
 router.get("/users", protect, adminOnly, listUsers);

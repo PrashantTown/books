@@ -5,6 +5,42 @@ const { notifyAdmins } = require("../utils/notify");
 const { writeAudit } = require("../utils/audit");
 const { isAdmin, sameUser } = require("../utils/access");
 const { isClientId, isEmail, text, ms, lower, hasUnsafeKeys } = require("../utils/validate");
+const { emailTeam } = require("../utils/teamMail");
+const { sitePage } = require("../utils/siteLink");
+const { escapeHtml } = require("../utils/tokens");
+
+// An email to the team about a new message, so nobody has to watch the
+// console. Replying to it answers the person who wrote in.
+const emailTeamAbout = (ticket, req) => {
+  const who = ticket.name ? `${ticket.name} <${ticket.fromEmail}>` : ticket.fromEmail;
+  const area = String(ticket.area || "");
+  const kind = /^keep me posted/i.test(area) ? "posted" : /^contact page/i.test(area) || ticket.source === "public" ? "contact" : "report";
+  const subject =
+    kind === "posted"
+      ? `Keep me posted: ${ticket.fromEmail}`
+      : kind === "contact"
+        ? `New message from ${ticket.name || ticket.fromEmail} (${ticket.ref})`
+        : `Problem report ${ticket.ref}: ${area}`;
+  const consoleLink = `${sitePage(req)}#support`;
+  const lines = [
+    `From: ${who}`,
+    `Topic: ${area}`,
+    kind === "report" && ticket.severityText ? `How bad: ${ticket.severityText}` : "",
+    `Reference: ${ticket.ref}`,
+    "",
+    ticket.body,
+    "",
+    ticket.replyTo ? `Reply to this email to answer them (it goes to ${ticket.replyTo}).` : "",
+    `See it in the console: ${consoleLink}`,
+  ].filter((l, i, all) => l !== "" || (all[i - 1] !== "" && i > 0));
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#1d2a26;max-width:560px">
+<p><b>From:</b> ${escapeHtml(who)}<br><b>Topic:</b> ${escapeHtml(area)}${kind === "report" && ticket.severityText ? `<br><b>How bad:</b> ${escapeHtml(ticket.severityText)}` : ""}<br><b>Reference:</b> ${escapeHtml(ticket.ref)}</p>
+<p style="white-space:pre-wrap;border-left:3px solid #0D3B32;padding-left:12px">${escapeHtml(ticket.body)}</p>
+<p style="font-size:13px;color:#4b5a55">${ticket.replyTo ? `Reply to this email to answer them (it goes to ${escapeHtml(ticket.replyTo)}). ` : ""}<a href="${escapeHtml(consoleLink)}">See it in the console</a>.</p></div>`;
+  emailTeam({ subject, text: lines.join("\n"), html, replyTo: ticket.replyTo || ticket.fromEmail }).catch((error) =>
+    console.error("Team email error:", error.message)
+  );
+};
 
 /**
  * Problem reports and contact messages.
@@ -121,6 +157,8 @@ const createTicket = async (req, res) => {
       });
       await writeAudit({ kind: "account", what: `Contact form message received (${ticket.ref})`, who: ticket.fromEmail });
     }
+
+    emailTeamAbout(ticket, req);
 
     return res.status(201).json({ success: true, item: ticketOut(ticket) });
   } catch (error) {
