@@ -240,6 +240,16 @@ describe("Administrators get their own sign-in code by email", () => {
 
 describe("Emails to the team, invitations and new administrators", () => {
   const latestTo = (email, re) => mailOutbox.filter((m) => m.to === email && (!re || re.test(m.subject))).pop();
+  // Team emails go out after the answer (the visitor doesn't wait for them),
+  // so give them a moment to arrive; on a remote database that takes longer.
+  const waitForMail = async (email, re, ms = 10000) => {
+    const end = Date.now() + ms;
+    for (;;) {
+      const mail = latestTo(email, re);
+      if (mail || Date.now() > end) return mail;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
   let chief;
   let chiefToken;
 
@@ -261,7 +271,7 @@ describe("Emails to the team, invitations and new administrators", () => {
       .post("/api/support")
       .send({ name: "Vera Visitor", from: `vera.${h.runId}@test.com`, replyTo: `vera.${h.runId}@test.com`, area: "Contact page: Accounts", severity: "med", body: "Do you run Saturday sessions?" });
     expect(res.status).toBe(201);
-    const mail = latestTo(chief.email, /New message from Vera Visitor/);
+    const mail = await waitForMail(chief.email, /New message from Vera Visitor/);
     expect(mail).toBeTruthy();
     expect(mail.replyTo).toBe(`vera.${h.runId}@test.com`);
     expect(mail.text).toContain("Do you run Saturday sessions?");
@@ -272,7 +282,7 @@ describe("Emails to the team, invitations and new administrators", () => {
     process.env.SUPPORT_EMAIL = `inbox.${h.runId}@test.com`;
     await h.request().post("/api/support").send({ name: "Kim", from: `kim.${h.runId}@test.com`, area: "Keep me posted", body: "Please let me know." });
     delete process.env.SUPPORT_EMAIL;
-    expect(latestTo(`inbox.${h.runId}@test.com`, /Keep me posted/)).toBeTruthy();
+    expect(await waitForMail(`inbox.${h.runId}@test.com`, /Keep me posted/)).toBeTruthy();
   });
 
   test("inviting a carer emails them a link to join", async () => {
