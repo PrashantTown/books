@@ -8,8 +8,13 @@
  * must be set up on the server), then signs in as Administrator; each time,
  * a six-digit code is emailed to them.
  *
+ *   node scripts/add-admin.js --email you@example.com --promote
+ *
+ * --promote turns an existing parent account with that email into an
+ * administrator (keeping its password). Without it, parent accounts are left
+ * alone.
+ *
  * Also runs from GitHub: Actions > Database tasks > Run workflow > add-admin.
- * An existing parent account is never turned into an administrator.
  */
 const crypto = require("crypto");
 const dotenv = require("dotenv");
@@ -35,9 +40,23 @@ const main = async () => {
   if (!/^mongodb(\+srv)?:\/\//.test(uri)) throw new Error("Set MONGODB_URI first");
   await mongoose.connect(uri);
 
+  const promote = process.argv.includes("--promote");
   const existing = await User.findOne({ email });
-  if (existing && existing.role !== "admin") {
-    throw new Error(`${email} already has a ${existing.role} account. Use a different email for the administrator.`);
+  if (existing && existing.role !== "admin" && !(promote && existing.role === "parent")) {
+    throw new Error(`${email} already has a ${existing.role} account. Use a different email, or tick "promote" to make that parent account an administrator.`);
+  }
+  if (existing && existing.role === "parent") {
+    existing.role = "admin";
+    existing.status = "active";
+    existing.lockedOut = false;
+    existing.emailConfirmed = true;
+    existing.tokenVersion += 1; // sign it out everywhere, so it signs in again as an administrator
+    await existing.save();
+    await writeAudit({ kind: "account", what: "Parent account made an administrator", who: "setup", detail: email, user: existing._id });
+    console.log(`${email} is now an administrator (it was a parent account; its password is unchanged).`);
+    console.log("Next: sign in with that email and choose Administrator.");
+    await mongoose.disconnect();
+    return;
   }
   if (existing) {
     existing.status = "active";

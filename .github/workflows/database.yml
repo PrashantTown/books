@@ -25,6 +25,10 @@ on:
         description: "add-admin only: their name"
         type: string
         required: false
+      promote:
+        description: "add-admin only: if that email is already a parent account, make it an administrator"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -117,6 +121,7 @@ jobs:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
       ADMIN_EMAIL: ${{ inputs.admin_email }}
       ADMIN_NAME: ${{ inputs.admin_name }}
+      PROMOTE: ${{ inputs.promote }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -126,7 +131,9 @@ jobs:
       - run: npm ci
       - name: Add the administrator
         run: |
-          if node scripts/add-admin.js --email "$ADMIN_EMAIL" --name "$ADMIN_NAME" > add-admin.log 2>&1; then
+          FLAGS=""
+          if [ "$PROMOTE" = "true" ]; then FLAGS="--promote"; fi
+          if node scripts/add-admin.js --email "$ADMIN_EMAIL" --name "$ADMIN_NAME" $FLAGS > add-admin.log 2>&1; then
             echo "::notice::$(head -n 1 add-admin.log)"
           else
             echo "::error::$(tail -n 1 add-admin.log)"
