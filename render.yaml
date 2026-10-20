@@ -25,7 +25,7 @@ services:
       - key: TRUST_PROXY
         value: "1"
       - key: CORS_ORIGINS
-        value: https://parents-go-to.vercel.app,https://parentsgoto.vercel.app
+        value: https://parents-go-to.vercel.app,https://parentsgoto.vercel.app,https://parents-go-to-live.vercel.app
       - key: JWT_SECRET
         generateValue: true
       - key: MONGODB_URI
